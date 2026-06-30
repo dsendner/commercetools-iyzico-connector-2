@@ -1,0 +1,33 @@
+deployAs:
+  - name: enabler
+    applicationType: assets
+  - name: processor
+    applicationType: service
+    endpoint: /
+    scripts:
+      postDeploy: npm install && npm run connector:post-deploy
+      preUndeploy: npm install && npm run connector:pre-undeploy
+    configuration:
+      standardConfiguration:
+       - key: CTP_PROJECT_KEY
+         description: commercetools project key
+         required: true
+       - key: CTP_AUTH_URL
+         description: commercetools Auth URL
+         required: true
+       - key: CTP_API_URL
+         description: commercetools API URL
+         required: true
+       - key: CTP_SESSION_URL
+         description: Session API URL
+         required: true
+       - key: CTP_CHECKOUT_URL
+         description: Checkout API URL 
+         required: true
+       - key: CTP_CLIENT_ID
+         description: commercetools client ID with manage_payments, manage_orders, view_sessions, view_api_clients, manage_checkout_payment_intents & introspect_oauth_tokens scopes
+         required: true
+      securedConfiguration:
+        - key: CTP_CLIENT_SECRET
+          description: commercetools client secret
+          required: true
