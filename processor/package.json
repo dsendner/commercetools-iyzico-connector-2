@@ -22,16 +22,21 @@
     "iyzico:retrieve": "ts-node src/scripts/iyzico-retrieve.ts"
   },
   "dependencies": {
-    "@commercetools/connect-payments-sdk": "^0.28.0",
-    "@nestjs/axios": "^4.0.1",
-    "@nestjs/common": "^11.0.1",
+    "@commercetools/connect-payments-sdk": "^1.1.0",
+    "@nestjs/common": "^11.1.27",
     "@nestjs/config": "^4.0.4",
-    "@nestjs/core": "^11.0.1",
-    "@nestjs/platform-express": "^11.0.1",
-    "axios": "^1.17.0",
+    "@nestjs/core": "^11.1.27",
+    "@nestjs/platform-express": "^11.1.27",
+    "axios": "^1.18.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "zod": "^4.4.3"
+  },
+  "overrides": {
+    "@nestjs/platform-express": {
+      "multer": "2.2.0"
+    },
+    "lodash": "4.18.1"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",
