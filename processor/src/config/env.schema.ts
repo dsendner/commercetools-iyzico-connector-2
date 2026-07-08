@@ -1,9 +1,9 @@
 import z from "zod";
 
 export const envSchema = z.object({
-    NODE_ENV: z.enum(['development', 'production']),
+    NODE_ENV: z.enum(['development', 'production']).default('production'),
     PORT: z.string().min(4).max(4),
-    LOG_LEVEL : z.enum(['debug', 'info', 'warn', 'error']),
+    LOG_LEVEL : z.enum(['debug', 'info', 'warn', 'error']).default('debug'),
 
 
     CTP_PROJECT_KEY : z.string().min(1),

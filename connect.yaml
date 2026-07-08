@@ -43,6 +43,10 @@ deployAs:
           description: Iyzico API base URL (example - https://api.iyzico.com - sandbox - https://api.sandbox.iyzico.com)
           default: 'https://api.sandbox.iyzico.com'
           required: true
+        - key: LOG_LEVEL
+          description: Log level (debug, info, warn, error)
+          required: false
+          default: 'info'
       securedConfiguration:
         - key: CTP_CLIENT_SECRET
           description: commercetools client secret
