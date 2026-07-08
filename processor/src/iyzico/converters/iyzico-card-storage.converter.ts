@@ -43,6 +43,11 @@ export function packCardToken(cardUserKey: string, cardToken: string): string {
    return `${cardUserKey}::${cardToken}`;
 }
 
+export function unpackCardToken(packed: string): { cardUserKey: string; cardToken: string } {
+  const [cardUserKey, cardToken] = packed.split('::');
+  return { cardUserKey, cardToken };
+}
+
 export function findExpiry(list: IyzicoCardListResponse, cardToken: string): CardExpiry | undefined {
     const card = list.cardDetails?.find(c => c.cardToken === cardToken);
     const month = Number(card?.expireMonth);

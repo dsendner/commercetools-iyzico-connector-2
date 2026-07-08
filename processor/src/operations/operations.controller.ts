@@ -2,7 +2,7 @@ import { Body, Controller, Get, HttpCode, NotImplementedException, Param, Post }
 import type { TransactionDraft, TransactionResponse } from './transaction.dto';
 import { StatusResponse } from './status.dto';
 
-@Controller('')
+@Controller('operations')
 export class OperationsController {
 
     constructor() { }

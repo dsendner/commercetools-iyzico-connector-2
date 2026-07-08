@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { IyzicoClient } from "./iyzico.client";
-import { findExpiry, IyzicoCardListResponse, packCardToken, SavedCard } from "./converters/iyzico-card-storage.converter";
-import { GenerateCardDetailsCustomFieldsDraft, type CommercetoolsPaymentMethodService } from "@commercetools/connect-payments-sdk";
+import { findExpiry, IyzicoCardListResponse, packCardToken, SavedCard, unpackCardToken } from "./converters/iyzico-card-storage.converter";
+import { GenerateCardDetailsCustomFieldsDraft, PaymentMethod, type CommercetoolsPaymentMethodService } from "@commercetools/connect-payments-sdk";
 import { CT_PAYMENT_METHOD_SERVICE } from "../../src/commercetools/commercetools.module";
 
 @Injectable()
@@ -13,7 +13,7 @@ export class IyzicoCardService {
         @Inject(CT_PAYMENT_METHOD_SERVICE) private readonly ctPaymentMethods: CommercetoolsPaymentMethodService,
     ) { }
 
-    async save(customerId: string, card: SavedCard): Promise<void> {
+    async save(customerId: string, card: SavedCard): Promise<PaymentMethod> {
         const expiry = await this.fetchExpiry(card.cardUserKey, card.cardToken);
 
         const brand = card.brand || (card as any).cardAssociation || 'card';
@@ -41,34 +41,28 @@ export class IyzicoCardService {
             },
         }
 
-        await this.ctPaymentMethods.save(saveOptions);
+        const paymentMethod = await this.ctPaymentMethods.save(saveOptions);
         this.logger.log(`Saved card for customer ${customerId}`);
+
+        return paymentMethod;
     }
 
     async getUserKey(customerId?: string): Promise<string | undefined> {
-        if (!customerId) {
-            return undefined;
-        }
+        if (!customerId) return undefined;
+
         try {
-            const existingMethods: any = await this.ctPaymentMethods.find({
+            const { results } = await this.ctPaymentMethods.find({
                 customerId,
-                paymentInterface: 'iyzico'
+                paymentInterface: 'iyzico',
             });
 
-            if (existingMethods?.results && existingMethods.results.length > 0) {
-                const firstMethod = existingMethods.results[0];
-                const tokenValue = firstMethod.token?.value || firstMethod.token;
+            const token = results[0]?.token?.value;
+            return token ? unpackCardToken(token).cardUserKey : undefined;
 
-                if (tokenValue && typeof tokenValue === 'string') {
-                    const [cardUserKey] = tokenValue.split('::');
-                    return cardUserKey;
-                }
-            }
         } catch (error) {
             this.logger.error(`Failed to fetch cardUserKey for customer ${customerId}: ${error.message}`);
+            return undefined;
         }
-
-        return undefined;
     }
 
     private async fetchExpiry(cardUserKey: string, cardToken: string) {

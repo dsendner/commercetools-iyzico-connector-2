@@ -1,16 +1,6 @@
 import { Inject, Injectable, InternalServerErrorException, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
-import {
-    Cart,
-    GenerateInterfaceInteractionCustomFieldsDraft,
-    getCtSessionIdFromContext,
-    getMerchantReturnUrlFromContext,
-    getProcessorUrlFromContext,
-    Payment,
-    type CommercetoolsCartService,
-    type CommercetoolsPaymentService,
-    type Money,
-} from '@commercetools/connect-payments-sdk';
-import { CT_CART_SERVICE, CT_PAYMENT_SERVICE } from '../commercetools/commercetools.module';
+import * as connectPaymentsSdk from '@commercetools/connect-payments-sdk';
+import { CT_CART_SERVICE, CT_PAYMENT_METHOD_SERVICE, CT_PAYMENT_SERVICE } from '../commercetools/commercetools.module';
 import { IyzicoInitializeResponse, toIyzicoInitializeRequest } from './converters/iyzico-create-session.converter';
 import { IyzicoClient } from './iyzico.client';
 import { getRequestContext } from '../commercetools/request-context';
@@ -18,8 +8,10 @@ import { buildCallbackUrl } from './helper.converter';
 import { IyzicoPaymentResult, IyzicoRetrieveResponse, handleIyzicoError, toIyzicoPaymentResult } from './converters/iyzico-retrieve-payment.converter';
 import { PaymentResponse } from './iyzico-payment.type';
 import { IyzicoWebhookPayload } from './converters/webhook.converter';
-import { toSavedCard as toSavedCard } from './converters/iyzico-card-storage.converter';
+import { toSavedCard as toSavedCard, unpackCardToken } from './converters/iyzico-card-storage.converter';
 import { IyzicoCardService } from './iyzico-card.service';
+import { TransactionDraft, TransactionResponse } from '../operations/transaction.dto';
+import { IyzicoNon3dsResponse, toIyzicoNon3dsRequest } from './converters/iyzico-non-3ds.converter';
 
 export interface CreateSessionRequest {
     cartId: string;
@@ -39,7 +31,7 @@ const TRANSACTION_BY_OUTCOME: Record<string, { type: string; state: string }> = 
     Pending: { type: 'Charge', state: 'Pending' },
 };
 
-function settledChargeState(payment: Payment): 'Success' | 'Failure' | undefined {
+function settledChargeState(payment: connectPaymentsSdk.Payment): 'Success' | 'Failure' | undefined {
     const charge = (payment.transactions ?? []).find(t => t.type === 'Charge');
     if (charge?.state === 'Success') {
         return charge.state as 'Success' | 'Failure';
@@ -49,16 +41,18 @@ function settledChargeState(payment: Payment): 'Success' | 'Failure' | undefined
 
 const INITIALIZE_ENDPOINT = '/payment/iyzipos/checkoutform/initialize/auth/ecom';
 const RETRIEVE_ENDPOINT = '/payment/iyzipos/checkoutform/auth/ecom/detail';
+const NON_3DS_PAYMENT_ENDPOINT = '/payment/auth';
 
-const toMoney = (m: Money): Money => ({ centAmount: m.centAmount, currencyCode: m.currencyCode });
+const toMoney = (m: connectPaymentsSdk.Money): connectPaymentsSdk.Money => ({ centAmount: m.centAmount, currencyCode: m.currencyCode });
 
 @Injectable()
 export class IyzicoPaymentService {
     private readonly logger = new Logger(IyzicoPaymentService.name);
 
     constructor(
-        @Inject(CT_CART_SERVICE) private readonly ctCart: CommercetoolsCartService,
-        @Inject(CT_PAYMENT_SERVICE) private readonly ctPayment: CommercetoolsPaymentService,
+        @Inject(CT_CART_SERVICE) private readonly ctCart: connectPaymentsSdk.CommercetoolsCartService,
+        @Inject(CT_PAYMENT_SERVICE) private readonly ctPayment: connectPaymentsSdk.CommercetoolsPaymentService,
+        @Inject(CT_PAYMENT_METHOD_SERVICE) private readonly ctPaymentMethods: connectPaymentsSdk.CommercetoolsPaymentMethodService,
         private readonly iyzico: IyzicoClient,
         private readonly iyzicoCardService: IyzicoCardService,
     ) { }
@@ -96,7 +90,7 @@ export class IyzicoPaymentService {
                 interactionId: checkoutFormInitResponse.token,
             },
             pspInteractions: [
-                GenerateInterfaceInteractionCustomFieldsDraft({
+                connectPaymentsSdk.GenerateInterfaceInteractionCustomFieldsDraft({
                     interactionId: checkoutFormInitResponse.token,
                     createdAt: new Date().toISOString(),
                     type: 'iyzico-checkout-form',
@@ -164,6 +158,118 @@ export class IyzicoPaymentService {
         await this.finalizePayment(payment, payload.token);
     }
 
+    async handleTransaction(transactionDraft: TransactionDraft): Promise<TransactionResponse> {
+        if (transactionDraft.type === 'Recurring') {
+            return this.handleTransactionRecurringType(transactionDraft);
+        }
+        throw new connectPaymentsSdk.ErrorInvalidField('type', transactionDraft.type ?? 'not-provided', 'Recurring');
+    }
+
+    private async handleTransactionRecurringType(
+        transactionDraft: TransactionDraft,
+    ): Promise<TransactionResponse> {
+
+        const cart = await this.ctCart.getCart({
+            id: transactionDraft.cart.id,
+            expand: ['paymentInfo.payments[*]'],
+        });
+
+        if (!cart.customerId) {
+            throw new InternalServerErrorException(
+                'Recurring payment requires an authenticated customer',
+            );
+        }
+
+        const lastPayment = cart.paymentInfo?.payments?.[0]?.obj;
+        const cardId = lastPayment?.custom?.fields?.cardId as string | undefined;
+
+        if (!cardId) {
+            throw new InternalServerErrorException(
+                `No cardId on payment for cart ${cart.id}`,
+            );
+        }
+
+        const paymentMethod = await this.ctPaymentMethods.get({
+            id: cardId,
+            customerId: cart.customerId,
+            paymentInterface: 'iyzico',
+        });
+
+        const token = paymentMethod[0]?.token?.value;
+        if (!token) {
+            throw new InternalServerErrorException(
+                `No stored card token found for customer ${cart.customerId} — cannot process recurring payment`,
+            );
+        }
+
+        const { cardUserKey, cardToken } = unpackCardToken(token.value);
+
+
+        const payment = await this.ctPayment.createPayment({
+            amountPlanned: toMoney(cart.totalPrice),
+            paymentMethodInfo: { paymentInterface: 'iyzico' },
+        });
+
+        await this.ctPayment.updatePayment({
+            id: payment.id,
+            transaction: {
+                type: 'Charge',
+                state: 'Initial',
+                amount: toMoney(cart.totalPrice),
+            },
+        });
+
+        const izycoPaymentResponse = await this.iyzico.post<IyzicoNon3dsResponse>(NON_3DS_PAYMENT_ENDPOINT, {
+            ...toIyzicoNon3dsRequest(cart, payment, cardToken, cardUserKey),
+        });
+
+        const isSuccess = izycoPaymentResponse.status === 'success' && izycoPaymentResponse.fraudStatus === 1;
+
+        await this.ctPayment.updatePayment({
+            id: payment.id,
+            pspReference: izycoPaymentResponse.paymentId,
+            transaction: {
+                type: 'Charge',
+                state: isSuccess ? 'Success' : 'Failure',
+                amount: toMoney(cart.totalPrice),
+                interactionId: izycoPaymentResponse.conversationId,
+            },
+            pspInteractions: [
+                connectPaymentsSdk.GenerateInterfaceInteractionCustomFieldsDraft({
+                    interactionId: izycoPaymentResponse.conversationId,
+                    createdAt: new Date().toISOString(),
+                    type: 'iyzico-non3ds',
+                    response: JSON.stringify({
+                        status: izycoPaymentResponse.status,
+                        paymentId: izycoPaymentResponse.paymentId,
+                        fraudStatus: izycoPaymentResponse.fraudStatus,
+                        errorCode: izycoPaymentResponse.errorCode,
+                        errorMessage: izycoPaymentResponse.errorMessage,
+                    }),
+                }),
+            ],
+        });
+
+        return {
+            id: payment.id,
+            version: 1,
+            key: transactionDraft.key,
+            transactionStatus: {
+                state: isSuccess ? 'Completed' : 'Failed',
+                ...(isSuccess
+                    ? {}
+                    : {
+                        errors: [
+                            {
+                                code: izycoPaymentResponse.errorCode ?? 'IyzicoError',
+                                message: izycoPaymentResponse.errorMessage ?? 'Payment failed',
+                            },
+                        ],
+                    }),
+            },
+        };
+    }
+
     private async retrieveIyzicoPayment(paymentId: string, token: string): Promise<IyzicoPaymentResult> {
         const paymentresult = await this.iyzico.post<IyzicoRetrieveResponse>(RETRIEVE_ENDPOINT, {
             locale: 'tr',
@@ -174,7 +280,7 @@ export class IyzicoPaymentService {
         return toIyzicoPaymentResult(paymentresult);
     }
 
-    private async findPaymentByToken(token: string): Promise<Payment> {
+    private async findPaymentByToken(token: string): Promise<connectPaymentsSdk.Payment> {
         const [payment] = await this.ctPayment.findPaymentsByInterfaceId({ interfaceId: token });
         if (!payment) {
             throw new NotFoundException(`Payment with Iyzico token ${token} not found`);
@@ -183,7 +289,7 @@ export class IyzicoPaymentService {
     }
 
     private async recordPaymentOnCommercetools(
-        payment: Payment,
+        payment: connectPaymentsSdk.Payment,
         iyzicoPaymentResult: IyzicoPaymentResult,
         token: string
     ): Promise<void> {
@@ -196,12 +302,12 @@ export class IyzicoPaymentService {
                 type,
                 state,
                 amount: toMoney(payment.amountPlanned),
-                interactionId: token // 3. Fix: Use the token parameter ("tok-xyz") here
+                interactionId: token
             },
 
             pspInteractions: [
-                GenerateInterfaceInteractionCustomFieldsDraft({
-                    interactionId: token, // 4. Fix: Use the token here as well
+                connectPaymentsSdk.GenerateInterfaceInteractionCustomFieldsDraft({
+                    interactionId: token,
                     createdAt: new Date().toISOString(),
                     type: `iyzico-confirm-${iyzicoPaymentResult.paymentStatus.toLocaleLowerCase()}`,
                     response: JSON.stringify({
@@ -215,7 +321,7 @@ export class IyzicoPaymentService {
         });
     }
 
-    private async initCheckoutForm(cart: Cart, payment: Payment, callbackUrl: string, clientIp: string, cardUserKey?: string): Promise<IyzicoInitializeResponse> {
+    private async initCheckoutForm(cart: connectPaymentsSdk.Cart, payment: connectPaymentsSdk.Payment, callbackUrl: string, clientIp: string, cardUserKey?: string): Promise<IyzicoInitializeResponse> {
         const iyzicoRequest = toIyzicoInitializeRequest(cart, payment, callbackUrl, clientIp, cardUserKey);
 
         const CheckoutFormInitResponse = await this.iyzico.post<IyzicoInitializeResponse>(
@@ -233,16 +339,16 @@ export class IyzicoPaymentService {
 
     private callbackUrlFor(id: string): string {
         const ctx = getRequestContext();
-        const baseUrl = getProcessorUrlFromContext(ctx);
+        const baseUrl = connectPaymentsSdk.getProcessorUrlFromContext(ctx);
 
         if (!baseUrl) {
             throw new InternalServerErrorException('Could not determine processor URL');
         }
 
-        return buildCallbackUrl(baseUrl, id, getCtSessionIdFromContext(ctx), getMerchantReturnUrlFromContext(ctx));
+        return buildCallbackUrl(baseUrl, id, connectPaymentsSdk.getCtSessionIdFromContext(ctx), connectPaymentsSdk.getMerchantReturnUrlFromContext(ctx));
     }
 
-    private async finalizePayment(payment: Payment, token: string): Promise<IyzicoPaymentResult> {
+    private async finalizePayment(payment: connectPaymentsSdk.Payment, token: string): Promise<IyzicoPaymentResult> {
         const settled = settledChargeState(payment);
         if (settled) {
             return {
@@ -258,7 +364,7 @@ export class IyzicoPaymentService {
         return paymentResult;
     }
 
-    private async saveCardIfPresent(payment: Payment, paymentResult: IyzicoPaymentResult): Promise<void> {
+    private async saveCardIfPresent(payment: connectPaymentsSdk.Payment, paymentResult: IyzicoPaymentResult): Promise<void> {
         const savedCard = toSavedCard(paymentResult);
 
         if (!savedCard) {
@@ -272,7 +378,16 @@ export class IyzicoPaymentService {
                 return;
             }
 
-            await this.iyzicoCardService.save(cart.customerId, savedCard);
+            const savedPaymentMethod = await this.iyzicoCardService.save(cart.customerId, savedCard);
+
+            if (savedPaymentMethod?.id) {
+                await this.ctPayment.updatePayment({
+                    id: payment.id,
+                    customFieldValues: {
+                        cardId: savedPaymentMethod.id,
+                    },
+                });
+            }
         } catch (error) {
             this.logger.error(`Could not save card for payment ${payment.id}: ${error}`);
         }
