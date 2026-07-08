@@ -5,7 +5,7 @@ deployAs:
     applicationType: service
     endpoint: /
     scripts:
-      postDeploy: npm install && npm run build && npm run connector:post-deploy
+      postDeploy: npm install && npm run connector:post-deploy
       preUndeploy: npm install && npm run connector:pre-undeploy
     configuration:
       standardConfiguration:
@@ -16,13 +16,13 @@ deployAs:
           description: commercetools client ID with manage_payments, manage_orders, view_sessions, view_api_clients, manage_checkout_payment_intents, introspect_oauth_tokens, manage_types and view_types scopes
           required: true
         - key: CTP_AUTH_URL
-          description: commercetools Auth URL
+          description: commercetools Auth URL (example https://auth.europe-west1.gcp.commercetools.com)
           required: true
         - key: CTP_API_URL
-          description: commercetools API URL
+          description: commercetools API URL (example https://api.europe-west1.gcp.commercetools.com)
           required: true
         - key: CTP_SESSION_URL
-          description: Session API URL
+          description: Session API URL (example https://session.europe-west1.gcp.commercetools.com)
           required: true
         - key: CTP_CHECKOUT_URL
           description: Checkout API URL (example - https://checkout.europe-west1.gcp.commercetools.com).
@@ -34,7 +34,7 @@ deployAs:
           description: JWT Issuer for jwt validation (example - https://mc-api.europe-west1.gcp.commercetools.com)
           required: true
         - key: IYZICO_BASE_URL
-          description: Iyzico API base URL
+          description: Iyzico API base URL (example - https://api.iyzico.com - sandbox : https://api.sandbox.iyzico.com)
           required: true
       securedConfiguration:
         - key: CTP_CLIENT_SECRET
