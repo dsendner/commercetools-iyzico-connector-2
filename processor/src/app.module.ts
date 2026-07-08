@@ -2,12 +2,13 @@ import { MiddlewareConsumer, Module } from '@nestjs/common';
 import { IyzicoModule } from './iyzico/iyzico.module';
 import { CommercetoolsModule } from './commercetools/commercetools.module';
 import { RequestContextMiddleware } from './commercetools/request-context.middleware';
-import { ConfigModule } from '@nestjs/config';
 import { OperationsModule } from './operations/operations.module';
+import { ConfigModule as NestConfigModule } from '@nestjs/config';
+import { ConfigModule } from './config/config.module';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({
+    NestConfigModule.forRoot({
       envFilePath: '.env.local',
       isGlobal: true,
     }),
