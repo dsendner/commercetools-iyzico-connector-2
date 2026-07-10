@@ -1,5 +1,4 @@
-
-enabler/dist/
-enabler/public/
-enabler/node_modules/
-enabler/index.html
+dist/
+public/
+node_modules/
+index.html
