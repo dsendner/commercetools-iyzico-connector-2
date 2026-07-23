@@ -30,14 +30,17 @@ export class OperationsController {
 
     @Get('payment-components')
     async paymentComponents() {
-        throw new NotImplementedException('No payment components — redirect flow only');
+        return {
+            dropins: [{ type: 'embedded' }],
+            components: [],
+        };
     }
 
     @Post('transactions')
     @HttpCode(201)
-  async createTransaction(@Body() body: TransactionDraft): Promise<TransactionResponse> {
-    // TODO: implement
-    throw new NotImplementedException('handleTransaction not yet implemented');
-  }
+    async createTransaction(@Body() body: TransactionDraft): Promise<TransactionResponse> {
+        // TODO: implement
+        throw new NotImplementedException('handleTransaction not yet implemented');
+    }
 }
 
