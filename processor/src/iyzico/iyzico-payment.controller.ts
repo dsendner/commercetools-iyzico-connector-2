@@ -1,7 +1,8 @@
-import { Body, Controller, HttpCode, Ip, Post, Query, Req, Res, Headers } from "@nestjs/common";
+import { Body, Controller, HttpCode, Ip, Post, Query, Req, Res, Headers, UseGuards } from "@nestjs/common";
 import { CreateSessionResponse, IyzicoPaymentService } from "./iyzico-payment.service";
 import express from "express";
 import type { IyzicoWebhookPayload } from "./converters/webhook.converter";
+import { SessionAuthGuard } from "../commercetools/session-auth.guard";
 
 interface CallbackBody {
     token: string;
@@ -15,6 +16,7 @@ export class IyzicoPaymentController {
     constructor(private readonly paymentService: IyzicoPaymentService) {}
 
     @Post('session')
+    @UseGuards(SessionAuthGuard)
     async sessions(@Req() request: AuthedRequest, @Ip() clientIp: string): Promise<CreateSessionResponse> {
         return this.paymentService.createSession({
             cartId: request.cartId,

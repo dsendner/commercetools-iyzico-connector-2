@@ -2,21 +2,18 @@ import { CommercetoolsCartService, CommercetoolsPaymentMethodService, Commerceto
 import { Global, Module } from '@nestjs/common';
 import { getRequestContext, updateRequestContext } from '../commercetools/request-context';
 import { AppConfigService } from '../config/config.service';
-
-export const PAYMENT_SDK = Symbol('PAYMENT_SDK');
-export const CT_CART_SERVICE = Symbol('CT_CART_SERVICE');
-export const CT_PAYMENT_SERVICE = Symbol('CT_PAYMENT_SERVICE');
-export const CT_SESSION_AUTH_HOOK = Symbol('CT_SESSION_AUTH_HOOK');
-export const CT_PAYMENT_METHOD_SERVICE = Symbol('CT_PAYMENT_METHOD_SERVICE');
+import { SessionAuthGuard } from './session-auth.guard';
+import { CT_CART_SERVICE, CT_PAYMENT_METHOD_SERVICE, CT_PAYMENT_SERVICE, CT_SESSION_AUTH_HOOK, PAYMENT_SDK } from './tokens';
 
 type PaymentSdk = ReturnType<typeof setupPaymentSDK>;
 
 @Global()
 @Module({
     providers: [
+        SessionAuthGuard,
         {
             provide: PAYMENT_SDK,
-            inject:[AppConfigService],
+            inject: [AppConfigService],
             useFactory: (config: AppConfigService) => {
                 const projectKey = config.get('CTP_PROJECT_KEY');
                 const clientId = config.get('CTP_CLIENT_ID');
@@ -46,24 +43,30 @@ type PaymentSdk = ReturnType<typeof setupPaymentSDK>;
         {
             provide: CT_CART_SERVICE,
             inject: [PAYMENT_SDK],
-            useFactory: (sdk: PaymentSdk) :CommercetoolsCartService => sdk.ctCartService,
+            useFactory: (sdk: PaymentSdk): CommercetoolsCartService => sdk.ctCartService,
         },
         {
             provide: CT_PAYMENT_SERVICE,
             inject: [PAYMENT_SDK],
-            useFactory: (sdk: PaymentSdk) :CommercetoolsPaymentService => sdk.ctPaymentService,
+            useFactory: (sdk: PaymentSdk): CommercetoolsPaymentService => sdk.ctPaymentService,
         },
         {
             provide: CT_SESSION_AUTH_HOOK,
             inject: [PAYMENT_SDK],
-            useFactory: (sdk: PaymentSdk) : SessionHeaderAuthenticationHook => sdk.sessionHeaderAuthHookFn,
+            useFactory: (sdk: PaymentSdk): SessionHeaderAuthenticationHook => sdk.sessionHeaderAuthHookFn,
         },
         {
             provide: CT_PAYMENT_METHOD_SERVICE,
             inject: [PAYMENT_SDK],
-            useFactory: (sdk: PaymentSdk) : CommercetoolsPaymentMethodService => sdk.ctPaymentMethodService,
+            useFactory: (sdk: PaymentSdk): CommercetoolsPaymentMethodService => sdk.ctPaymentMethodService,
         },
     ],
-    exports: [PAYMENT_SDK,CT_CART_SERVICE, CT_PAYMENT_SERVICE, CT_PAYMENT_METHOD_SERVICE],
+    exports: [
+        PAYMENT_SDK,
+        CT_CART_SERVICE,
+        CT_PAYMENT_SERVICE,
+        CT_PAYMENT_METHOD_SERVICE,
+        CT_SESSION_AUTH_HOOK
+    ],
 })
-export class CommercetoolsModule {}
+export class CommercetoolsModule { }

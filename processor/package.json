@@ -19,7 +19,8 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --config jest.config.ts --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "iyzico:checkout-form": "ts-node src/scripts/iyzico-checkout-form.ts",
-    "iyzico:retrieve": "ts-node src/scripts/iyzico-retrieve.ts"
+    "iyzico:retrieve": "ts-node src/scripts/iyzico-retrieve.ts",
+    "connector:post-deploy": "node dist/connectors/post-deploy.js"
   },
   "dependencies": {
     "@commercetools/connect-payments-sdk": "^1.1.0",

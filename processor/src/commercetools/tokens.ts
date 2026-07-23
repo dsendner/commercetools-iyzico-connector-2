@@ -1,0 +1,5 @@
+export const PAYMENT_SDK = Symbol('PAYMENT_SDK');
+export const CT_CART_SERVICE = Symbol('CT_CART_SERVICE');
+export const CT_PAYMENT_SERVICE = Symbol('CT_PAYMENT_SERVICE');
+export const CT_SESSION_AUTH_HOOK = Symbol('CT_SESSION_AUTH_HOOK');
+export const CT_PAYMENT_METHOD_SERVICE = Symbol('CT_PAYMENT_METHOD_SERVICE');

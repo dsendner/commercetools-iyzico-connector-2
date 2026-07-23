@@ -1,8 +1,8 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { IyzicoClient } from "./iyzico.client";
 import { findExpiry, IyzicoCardListResponse, packCardToken, SavedCard, unpackCardToken } from "./converters/iyzico-card-storage.converter";
-import { GenerateCardDetailsCustomFieldsDraft, PaymentMethod, type CommercetoolsPaymentMethodService } from "@commercetools/connect-payments-sdk";
-import { CT_PAYMENT_METHOD_SERVICE } from "../../src/commercetools/commercetools.module";
+import { PaymentMethod, type CommercetoolsPaymentMethodService } from "@commercetools/connect-payments-sdk";
+import { CT_PAYMENT_METHOD_SERVICE } from "../commercetools/tokens";
 
 @Injectable()
 export class IyzicoCardService {

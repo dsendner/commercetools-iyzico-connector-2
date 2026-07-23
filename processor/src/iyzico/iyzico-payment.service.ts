@@ -1,6 +1,5 @@
 import { Inject, Injectable, InternalServerErrorException, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import * as connectPaymentsSdk from '@commercetools/connect-payments-sdk';
-import { CT_CART_SERVICE, CT_PAYMENT_METHOD_SERVICE, CT_PAYMENT_SERVICE } from '../commercetools/commercetools.module';
 import { IyzicoInitializeResponse, toIyzicoInitializeRequest } from './converters/iyzico-create-session.converter';
 import { IyzicoClient } from './iyzico.client';
 import { getRequestContext } from '../commercetools/request-context';
@@ -12,6 +11,7 @@ import { toSavedCard as toSavedCard, unpackCardToken } from './converters/iyzico
 import { IyzicoCardService } from './iyzico-card.service';
 import { TransactionDraft, TransactionResponse } from '../operations/transaction.dto';
 import { IyzicoNon3dsResponse, toIyzicoNon3dsRequest } from './converters/iyzico-non-3ds.converter';
+import { CT_CART_SERVICE, CT_PAYMENT_METHOD_SERVICE, CT_PAYMENT_SERVICE } from '../commercetools/tokens';
 
 export interface CreateSessionRequest {
     cartId: string;
@@ -95,7 +95,7 @@ export class IyzicoPaymentService {
                     createdAt: new Date().toISOString(),
                     type: 'iyzico-checkout-form',
                     response: JSON.stringify({
-                        checkoutFormContent: checkoutFormInitResponse.checkoutFormContent,
+                        //checkoutFormContent: checkoutFormInitResponse.checkoutFormContent,
                         paymentPageUrl: checkoutFormInitResponse.paymentPageUrl,
                     })
                 })
@@ -339,7 +339,7 @@ export class IyzicoPaymentService {
 
     private callbackUrlFor(id: string): string {
         const ctx = getRequestContext();
-        const baseUrl = connectPaymentsSdk.getProcessorUrlFromContext(ctx);
+        const baseUrl = connectPaymentsSdk.getProcessorUrlFromContext(ctx) ?? process.env.PROCESSOR_PUBLIC_URL;
 
         if (!baseUrl) {
             throw new InternalServerErrorException('Could not determine processor URL');
