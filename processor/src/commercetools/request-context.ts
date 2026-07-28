@@ -23,9 +23,10 @@ export function runWithRequestContext<T>(
     fn: () => T
 ): T {
     const ctx: RequestContextData = {
-        correlationId: seed.correlationId ?? '',
-        requestId: seed.requestId ?? '',
-        authentication: seed.authentication ?? undefined,
+        correlationId: '',
+        requestId: '',
+        authentication: undefined,
+        ...seed,
     };
     return storage.run(ctx, fn);
 }

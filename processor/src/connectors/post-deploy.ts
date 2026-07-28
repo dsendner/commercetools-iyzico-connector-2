@@ -23,6 +23,33 @@ async function run(): Promise<void> {
 
     const type = await sdk.ctCustomTypeService.createOrUpdatePredefinedInterfaceInteractionType();
     console.log(`predefined interface interaction type created/updated: ${type.key}`);
+
+    await createCartTokenizationType(sdk);
+}
+
+
+async function createCartTokenizationType(sdk: any): Promise<void> {
+  const key = 'iyzico-cart-tokenization';
+
+  const exists = await sdk.ctAPI.customType.existsByKey(key);
+  if (exists) {
+    console.log(`Cart tokenization type already exists: ${key}`);
+    return;
+  }
+
+  const type = await sdk.ctAPI.customType.create({
+    key,
+    name: { en: 'Iyzico cart tokenization' },
+    resourceTypeIds: ['order'],
+    fieldDefinitions: [{
+      name: 'tokenizationRequired',
+      type: { name: 'Boolean' },
+      label: { en: 'Require card tokenization' },
+      required: false,
+    }],
+  });
+
+  console.log(`Cart tokenization type created: ${type.key}`);
 }
 
 run().catch((err) => {

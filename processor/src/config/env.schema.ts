@@ -20,6 +20,8 @@ export const envSchema = z.object({
     IYZICO_API_KEY: z.string().min(1),
     IYZICO_SECRET_KEY: z.string().min(1),
     IYZICO_TIMEOUT: z.number().positive().default(30000),
+
+    SUBSCRIPTION_DETECTION_FIELD: z.string().min(1),
 });
 
 

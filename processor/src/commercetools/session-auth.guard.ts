@@ -14,7 +14,6 @@ export class SessionAuthGuard implements CanActivate {
     const request = context.switchToHttp().getRequest();
 
     await this.sessionAuthHook.authenticate()({ headers: request.headers });
-    console.log('CTX =', JSON.stringify(getRequestContext(), null, 2));
 
     const cartId = this.extractCartId();
 
@@ -22,7 +21,6 @@ export class SessionAuthGuard implements CanActivate {
         throw new UnauthorizedException('No cart associated with this session');
     }
 
-    console.log('SessionAuthGuard: cartId', request);
     request.cartId = cartId;
     return true;
   }

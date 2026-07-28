@@ -1,6 +1,7 @@
-import { Body, Controller, Get, HttpCode, NotImplementedException, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, NotImplementedException, Param, Post, UseGuards } from '@nestjs/common';
 import type { TransactionDraft, TransactionResponse } from './transaction.dto';
-import { StatusResponse } from './status.dto';
+import { StatusResponseSchemaDTO } from './status.dto';
+import { JwtAuthGuard } from 'src/commercetools/jwt-auth.guard';
 
 @Controller('operations')
 export class OperationsController {
@@ -8,16 +9,19 @@ export class OperationsController {
     constructor() { }
 
     @Get('status')
-    // TODO: restore @UseGuards(JwtAuthGuard) before CT Checkout integration
-    async status(): Promise<StatusResponse> {
+    //@UseGuards(JwtAuthGuard)
+    async status(): Promise<StatusResponseSchemaDTO> {
         return {
+            status: 'OK',
+            timestamp: new Date().toISOString(),
+            version: process.env.npm_package_version ?? '1.0.0',
             metadata: {
                 name: 'iyzico-payment-connector',
                 description: 'Iyzico payment connector for commercetools',
-                version: process.env.npm_package_version ?? '0.0.1',
             },
-            status: 'OK',
-            timestamp: new Date().toISOString(),
+            checks: [
+                { name: 'Iyzico API', status: 'UP' },
+            ],
         };
     }
 
@@ -29,10 +33,12 @@ export class OperationsController {
     }
 
     @Get('payment-components')
+    //@UseGuards(JwtAuthGuard)
     async paymentComponents() {
         return {
             dropins: [{ type: 'embedded' }],
             components: [],
+            express: [],
         };
     }
 

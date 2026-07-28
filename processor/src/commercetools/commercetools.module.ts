@@ -1,9 +1,10 @@
-import { CommercetoolsCartService, CommercetoolsPaymentMethodService, CommercetoolsPaymentService, SessionHeaderAuthenticationHook, setupPaymentSDK } from '@commercetools/connect-payments-sdk';
+import { CommercetoolsCartService, CommercetoolsPaymentMethodService, CommercetoolsPaymentService, JWTAuthenticationHook, SessionHeaderAuthenticationHook, setupPaymentSDK } from '@commercetools/connect-payments-sdk';
 import { Global, Module } from '@nestjs/common';
 import { getRequestContext, updateRequestContext } from '../commercetools/request-context';
 import { AppConfigService } from '../config/config.service';
 import { SessionAuthGuard } from './session-auth.guard';
-import { CT_CART_SERVICE, CT_PAYMENT_METHOD_SERVICE, CT_PAYMENT_SERVICE, CT_SESSION_AUTH_HOOK, PAYMENT_SDK } from './tokens';
+import { CT_CART_SERVICE, CT_JWT_AUTH_HOOK, CT_PAYMENT_METHOD_SERVICE, CT_PAYMENT_SERVICE, CT_SESSION_AUTH_HOOK, PAYMENT_SDK } from './tokens';
+import { JwtAuthGuard } from './jwt-auth.guard';
 
 type PaymentSdk = ReturnType<typeof setupPaymentSDK>;
 
@@ -60,13 +61,19 @@ type PaymentSdk = ReturnType<typeof setupPaymentSDK>;
             inject: [PAYMENT_SDK],
             useFactory: (sdk: PaymentSdk): CommercetoolsPaymentMethodService => sdk.ctPaymentMethodService,
         },
+        {
+            provide: CT_JWT_AUTH_HOOK,
+            inject: [PAYMENT_SDK],
+            useFactory: (sdk: PaymentSdk): JWTAuthenticationHook => sdk.jwtAuthHookFn,
+        },
     ],
     exports: [
         PAYMENT_SDK,
         CT_CART_SERVICE,
         CT_PAYMENT_SERVICE,
         CT_PAYMENT_METHOD_SERVICE,
-        CT_SESSION_AUTH_HOOK
+        CT_SESSION_AUTH_HOOK,
+        CT_JWT_AUTH_HOOK
     ],
 })
 export class CommercetoolsModule { }

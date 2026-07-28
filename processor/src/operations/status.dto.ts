@@ -1,13 +1,16 @@
 export type HealthStatus = 'OK' | 'Partially Available' | 'Unavailable';
 
-export interface StatusMetadata {
+export interface StatusCheck {
   name: string;
-  description: string;
-  version?: string;
+  status: string;
+  details?: unknown;
+  message?: string;
 }
 
-export interface StatusResponse {
-  metadata: StatusMetadata;
-  status: HealthStatus;
+export interface StatusResponseSchemaDTO {
+  status: string;
   timestamp: string;
+  version: string;
+  metadata?: unknown;
+  checks: StatusCheck[];
 }

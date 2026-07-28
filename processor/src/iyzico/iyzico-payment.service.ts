@@ -1,4 +1,4 @@
-import { Inject, Injectable, InternalServerErrorException, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, InternalServerErrorException, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import * as connectPaymentsSdk from '@commercetools/connect-payments-sdk';
 import { IyzicoInitializeResponse, toIyzicoInitializeRequest } from './converters/iyzico-create-session.converter';
 import { IyzicoClient } from './iyzico.client';
@@ -12,6 +12,7 @@ import { IyzicoCardService } from './iyzico-card.service';
 import { TransactionDraft, TransactionResponse } from '../operations/transaction.dto';
 import { IyzicoNon3dsResponse, toIyzicoNon3dsRequest } from './converters/iyzico-non-3ds.converter';
 import { CT_CART_SERVICE, CT_PAYMENT_METHOD_SERVICE, CT_PAYMENT_SERVICE } from '../commercetools/tokens';
+import { AppConfigService } from '../config/config.service';
 
 export interface CreateSessionRequest {
     cartId: string;
@@ -42,6 +43,7 @@ function settledChargeState(payment: connectPaymentsSdk.Payment): 'Success' | 'F
 const INITIALIZE_ENDPOINT = '/payment/iyzipos/checkoutform/initialize/auth/ecom';
 const RETRIEVE_ENDPOINT = '/payment/iyzipos/checkoutform/auth/ecom/detail';
 const NON_3DS_PAYMENT_ENDPOINT = '/payment/auth';
+const PWI_INIT_ENDPOINT = '/v1/pay-with-iyzico/third-party-session/checkout/init';
 
 const toMoney = (m: connectPaymentsSdk.Money): connectPaymentsSdk.Money => ({ centAmount: m.centAmount, currencyCode: m.currencyCode });
 
@@ -55,16 +57,20 @@ export class IyzicoPaymentService {
         @Inject(CT_PAYMENT_METHOD_SERVICE) private readonly ctPaymentMethods: connectPaymentsSdk.CommercetoolsPaymentMethodService,
         private readonly iyzico: IyzicoClient,
         private readonly iyzicoCardService: IyzicoCardService,
+        private readonly config: AppConfigService,
     ) { }
 
     async createSession(req: CreateSessionRequest): Promise<CreateSessionResponse> {
         const cart = await this.ctCart.getCart({ id: req.cartId });
+
+        const isSubscription = this.isSubscriptionCart(cart);
+
         const payment = await this.ctPayment.createPayment({
             amountPlanned: toMoney(cart.totalPrice),
             paymentMethodInfo: { paymentInterface: 'iyzico' },
         });
 
-        const customerId = cart?.customerId
+        const customerId = cart?.customerId;
         let cardUserKey: string | undefined;
 
         if (customerId) {
@@ -72,12 +78,15 @@ export class IyzicoPaymentService {
         }
 
         const callbackUrl = this.callbackUrlFor(payment.id);
+        this.logger.log(`CART = ${JSON.stringify(cart)}`);
+
         const checkoutFormInitResponse = await this.initCheckoutForm(
             cart,
             payment,
             callbackUrl,
             req.clientIp,
-            cardUserKey
+            cardUserKey,
+            isSubscription,
         );
 
         await this.ctPayment.updatePayment({
@@ -95,7 +104,6 @@ export class IyzicoPaymentService {
                     createdAt: new Date().toISOString(),
                     type: 'iyzico-checkout-form',
                     response: JSON.stringify({
-                        //checkoutFormContent: checkoutFormInitResponse.checkoutFormContent,
                         paymentPageUrl: checkoutFormInitResponse.paymentPageUrl,
                     })
                 })
@@ -270,6 +278,17 @@ export class IyzicoPaymentService {
         };
     }
 
+    private isSubscriptionCart(cart: connectPaymentsSdk.Cart): boolean {
+        const field = this.config.get('SUBSCRIPTION_DETECTION_FIELD');
+        const withCode = cart.lineItems.filter(li => li.custom?.fields?.[field] != null);
+
+        this.logger.log(
+            `Cart ${cart.id}: ${withCode.length}/${cart.lineItems.length} lineItems with ${field}`,
+        );
+
+        return withCode.length > 0;
+    }
+
     private async retrieveIyzicoPayment(paymentId: string, token: string): Promise<IyzicoPaymentResult> {
         const paymentresult = await this.iyzico.post<IyzicoRetrieveResponse>(RETRIEVE_ENDPOINT, {
             locale: 'tr',
@@ -321,20 +340,26 @@ export class IyzicoPaymentService {
         });
     }
 
-    private async initCheckoutForm(cart: connectPaymentsSdk.Cart, payment: connectPaymentsSdk.Payment, callbackUrl: string, clientIp: string, cardUserKey?: string): Promise<IyzicoInitializeResponse> {
+    private async initCheckoutForm(
+        cart: connectPaymentsSdk.Cart,
+        payment: connectPaymentsSdk.Payment,
+        callbackUrl: string,
+        clientIp: string,
+        cardUserKey?: string,
+        isSubscription = false,
+    ): Promise<IyzicoInitializeResponse> {
         const iyzicoRequest = toIyzicoInitializeRequest(cart, payment, callbackUrl, clientIp, cardUserKey);
 
-        const CheckoutFormInitResponse = await this.iyzico.post<IyzicoInitializeResponse>(
-            INITIALIZE_ENDPOINT,
-            iyzicoRequest,
-        );
+        const endpoint = isSubscription ? PWI_INIT_ENDPOINT : INITIALIZE_ENDPOINT;
 
-        if (CheckoutFormInitResponse.status === 'Failure') {
-            this.logger.error(`Iyzico initialization failed: [${CheckoutFormInitResponse.errorCode}] ${CheckoutFormInitResponse.errorMessage}`);
+        const response = await this.iyzico.post<IyzicoInitializeResponse>(endpoint, iyzicoRequest);
+
+        if (response.status === 'Failure') {
+            this.logger.error(`Iyzico init failed: [${response.errorCode}] ${response.errorMessage}`);
             throw new InternalServerErrorException('Could not start the checkout init payment');
         }
 
-        return CheckoutFormInitResponse;
+        return response;
     }
 
     private callbackUrlFor(id: string): string {
@@ -345,7 +370,9 @@ export class IyzicoPaymentService {
             throw new InternalServerErrorException('Could not determine processor URL');
         }
 
-        return buildCallbackUrl(baseUrl, id, connectPaymentsSdk.getCtSessionIdFromContext(ctx), connectPaymentsSdk.getMerchantReturnUrlFromContext(ctx));
+        const merchantReturnUrl = connectPaymentsSdk.getMerchantReturnUrlFromContext(ctx) ?? process.env.DEFAULT_RETURN_URL;
+
+        return buildCallbackUrl(baseUrl, id, connectPaymentsSdk.getCtSessionIdFromContext(ctx), merchantReturnUrl);
     }
 
     private async finalizePayment(payment: connectPaymentsSdk.Payment, token: string): Promise<IyzicoPaymentResult> {

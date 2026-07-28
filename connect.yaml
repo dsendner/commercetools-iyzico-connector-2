@@ -40,13 +40,21 @@ deployAs:
           default: 'https://mc-api.europe-west1.gcp.commercetools.com'
           required: true
         - key: IYZICO_BASE_URL
-          description: Iyzico API base URL (example - https://api.iyzico.com - sandbox - https://api.sandbox.iyzico.com)
-          default: 'https://api.sandbox.iyzico.com'
+          description: Iyzico API base URL (example - https://api.iyzico.com - sandbox - https://sandbox-api.iyzipay.com)
+          default: 'https://sandbox-api.iyzipay.com'
           required: true
         - key: LOG_LEVEL
           description: Log level (debug, info, warn, error)
           required: false
           default: 'info'
+        - key: NODE_ENV
+          description: Node environment
+          required: false
+          default: 'production'
+        - key: SUBSCRIPTION_DETECTION_FIELD
+          description: LineItem custom field key whose presence indicates a subscription
+          required: false
+          default: 'frequency_code'
       securedConfiguration:
         - key: CTP_CLIENT_SECRET
           description: commercetools client secret
