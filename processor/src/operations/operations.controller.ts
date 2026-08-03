@@ -2,11 +2,12 @@ import { Body, Controller, Get, HttpCode, NotImplementedException, Param, Post, 
 import type { TransactionDraft, TransactionResponse } from './transaction.dto';
 import { StatusResponseSchemaDTO } from './status.dto';
 import { JwtAuthGuard } from 'src/commercetools/jwt-auth.guard';
+import { IyzicoRecurringService } from 'src/iyzico/iyzico-recurring.service';
 
 @Controller('operations')
 export class OperationsController {
 
-    constructor() { }
+    constructor(private readonly iyzicoRecurringService: IyzicoRecurringService) { }
 
     @Get('status')
     //@UseGuards(JwtAuthGuard)
@@ -45,8 +46,7 @@ export class OperationsController {
     @Post('transactions')
     @HttpCode(201)
     async createTransaction(@Body() body: TransactionDraft): Promise<TransactionResponse> {
-        // TODO: implement
-        throw new NotImplementedException('handleTransaction not yet implemented');
+      return this.iyzicoRecurringService.handleTransaction(body);
     }
 }
 

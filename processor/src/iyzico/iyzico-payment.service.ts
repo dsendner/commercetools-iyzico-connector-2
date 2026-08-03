@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, InternalServerErrorException, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { Inject, Injectable, InternalServerErrorException, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import * as connectPaymentsSdk from '@commercetools/connect-payments-sdk';
 import { IyzicoInitializeResponse, toIyzicoInitializeRequest } from './converters/iyzico-create-session.converter';
 import { IyzicoClient } from './iyzico.client';
@@ -43,7 +43,9 @@ function settledChargeState(payment: connectPaymentsSdk.Payment): 'Success' | 'F
 const INITIALIZE_ENDPOINT = '/payment/iyzipos/checkoutform/initialize/auth/ecom';
 const RETRIEVE_ENDPOINT = '/payment/iyzipos/checkoutform/auth/ecom/detail';
 const NON_3DS_PAYMENT_ENDPOINT = '/payment/auth';
+
 const PWI_INIT_ENDPOINT = '/v1/pay-with-iyzico/third-party-session/checkout/init';
+const PWI_RETRIEVE_ENDPOINT = '/v1/pay-with-iyzico/third-party-session/retrieve/payment';
 
 const toMoney = (m: connectPaymentsSdk.Money): connectPaymentsSdk.Money => ({ centAmount: m.centAmount, currencyCode: m.currencyCode });
 
@@ -289,12 +291,17 @@ export class IyzicoPaymentService {
         return withCode.length > 0;
     }
 
-    private async retrieveIyzicoPayment(paymentId: string, token: string): Promise<IyzicoPaymentResult> {
-        const paymentresult = await this.iyzico.post<IyzicoRetrieveResponse>(RETRIEVE_ENDPOINT, {
+    private async retrieveIyzicoPayment(paymentId: string, token: string, isSubscription: boolean): Promise<IyzicoPaymentResult> {
+
+        const endpoint = isSubscription ? PWI_RETRIEVE_ENDPOINT : RETRIEVE_ENDPOINT;
+
+        const paymentresult = await this.iyzico.post<IyzicoRetrieveResponse>(endpoint, {
             locale: 'tr',
             conversationId: paymentId,
-            token: token,
+            ...(isSubscription ? { checkoutFormToken: token } : { token }),
         });
+
+        this.logger.log(`RAW PWI RETRIEVE: ${JSON.stringify(paymentresult, null, 2)}`);
 
         return toIyzicoPaymentResult(paymentresult);
     }
@@ -321,7 +328,7 @@ export class IyzicoPaymentService {
                 type,
                 state,
                 amount: toMoney(payment.amountPlanned),
-                interactionId: token
+                interactionId: token            
             },
 
             pspInteractions: [
@@ -377,6 +384,16 @@ export class IyzicoPaymentService {
 
     private async finalizePayment(payment: connectPaymentsSdk.Payment, token: string): Promise<IyzicoPaymentResult> {
         const settled = settledChargeState(payment);
+
+        const cart = await this.ctCart.getCartByPaymentId({ paymentId: payment.id }).catch(() => undefined);
+        if (!cart) {
+            this.logger.warn(`Cart not found for payment ${payment.id}`);
+            return {
+                iyzicoPaymentId: payment.id,
+                paymentStatus: 'Failure',
+                errorMessage: 'Cart not found',
+            };
+        }
         if (settled) {
             return {
                 iyzicoPaymentId: payment.id,
@@ -384,7 +401,8 @@ export class IyzicoPaymentService {
                 errorMessage: settled === 'Failure' ? 'Payment could not be completed' : undefined,
             };
         }
-        const paymentResult = await this.retrieveIyzicoPayment(payment.id, token);
+        const isSubscription = this.isSubscriptionCart(cart);
+        const paymentResult = await this.retrieveIyzicoPayment(payment.id, token, isSubscription);
 
         await this.recordPaymentOnCommercetools(payment, paymentResult, token);
         await this.saveCardIfPresent(payment, paymentResult);
