@@ -24,32 +24,32 @@ async function run(): Promise<void> {
     const type = await sdk.ctCustomTypeService.createOrUpdatePredefinedInterfaceInteractionType();
     console.log(`predefined interface interaction type created/updated: ${type.key}`);
 
-    await createCartTokenizationType(sdk);
+    await createPaymentCardType(sdk);
+
 }
 
+async function createPaymentCardType(sdk: any): Promise<void> {
+  const key = 'iyzico-payment-card-info';
 
-async function createCartTokenizationType(sdk: any): Promise<void> {
-  const key = 'iyzico-cart-tokenization';
-
-  const exists = await sdk.ctAPI.customType.existsByKey(key);
-  if (exists) {
-    console.log(`Cart tokenization type already exists: ${key}`);
+  if (await sdk.ctAPI.customType.existsByKey(key)) {
+    console.log(`Custom type already exists: ${key}`);
     return;
   }
 
   const type = await sdk.ctAPI.customType.create({
     key,
-    name: { en: 'Iyzico cart tokenization' },
-    resourceTypeIds: ['order'],
-    fieldDefinitions: [{
-      name: 'tokenizationRequired',
-      type: { name: 'Boolean' },
-      label: { en: 'Require card tokenization' },
-      required: false,
-    }],
+    name: { en: 'Iyzico payment card info' },
+    resourceTypeIds: ['payment'],
+    fieldDefinitions: [
+      { name: 'cardType',        type: { name: 'String' }, label: { en: 'Card type' },        required: false },
+      { name: 'cardAssociation', type: { name: 'String' }, label: { en: 'Card association' }, required: false },
+      { name: 'cardFamily',      type: { name: 'String' }, label: { en: 'Card family' },      required: false },
+      { name: 'binNumber',       type: { name: 'String' }, label: { en: 'BIN' },              required: false },
+      { name: 'lastFourDigits',  type: { name: 'String' }, label: { en: 'Last four digits' }, required: false },
+    ],
   });
 
-  console.log(`Cart tokenization type created: ${type.key}`);
+  console.log(`Custom type created: ${type.key}`);
 }
 
 run().catch((err) => {

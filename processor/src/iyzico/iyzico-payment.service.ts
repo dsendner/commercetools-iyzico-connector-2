@@ -42,7 +42,6 @@ function settledChargeState(payment: connectPaymentsSdk.Payment): 'Success' | 'F
 
 const INITIALIZE_ENDPOINT = '/payment/iyzipos/checkoutform/initialize/auth/ecom';
 const RETRIEVE_ENDPOINT = '/payment/iyzipos/checkoutform/auth/ecom/detail';
-const NON_3DS_PAYMENT_ENDPOINT = '/payment/auth';
 
 const PWI_INIT_ENDPOINT = '/v1/pay-with-iyzico/third-party-session/checkout/init';
 const PWI_RETRIEVE_ENDPOINT = '/v1/pay-with-iyzico/third-party-session/retrieve/payment';
@@ -168,118 +167,6 @@ export class IyzicoPaymentService {
         await this.finalizePayment(payment, payload.token);
     }
 
-    async handleTransaction(transactionDraft: TransactionDraft): Promise<TransactionResponse> {
-        if (transactionDraft.type === 'Recurring') {
-            return this.handleTransactionRecurringType(transactionDraft);
-        }
-        throw new connectPaymentsSdk.ErrorInvalidField('type', transactionDraft.type ?? 'not-provided', 'Recurring');
-    }
-
-    private async handleTransactionRecurringType(
-        transactionDraft: TransactionDraft,
-    ): Promise<TransactionResponse> {
-
-        const cart = await this.ctCart.getCart({
-            id: transactionDraft.cart.id,
-            expand: ['paymentInfo.payments[*]'],
-        });
-
-        if (!cart.customerId) {
-            throw new InternalServerErrorException(
-                'Recurring payment requires an authenticated customer',
-            );
-        }
-
-        const lastPayment = cart.paymentInfo?.payments?.[0]?.obj;
-        const cardId = lastPayment?.custom?.fields?.cardId as string | undefined;
-
-        if (!cardId) {
-            throw new InternalServerErrorException(
-                `No cardId on payment for cart ${cart.id}`,
-            );
-        }
-
-        const paymentMethod = await this.ctPaymentMethods.get({
-            id: cardId,
-            customerId: cart.customerId,
-            paymentInterface: 'iyzico',
-        });
-
-        const token = paymentMethod[0]?.token?.value;
-        if (!token) {
-            throw new InternalServerErrorException(
-                `No stored card token found for customer ${cart.customerId} — cannot process recurring payment`,
-            );
-        }
-
-        const { cardUserKey, cardToken } = unpackCardToken(token.value);
-
-
-        const payment = await this.ctPayment.createPayment({
-            amountPlanned: toMoney(cart.totalPrice),
-            paymentMethodInfo: { paymentInterface: 'iyzico' },
-        });
-
-        await this.ctPayment.updatePayment({
-            id: payment.id,
-            transaction: {
-                type: 'Charge',
-                state: 'Initial',
-                amount: toMoney(cart.totalPrice),
-            },
-        });
-
-        const izycoPaymentResponse = await this.iyzico.post<IyzicoNon3dsResponse>(NON_3DS_PAYMENT_ENDPOINT, {
-            ...toIyzicoNon3dsRequest(cart, payment, cardToken, cardUserKey),
-        });
-
-        const isSuccess = izycoPaymentResponse.status === 'success' && izycoPaymentResponse.fraudStatus === 1;
-
-        await this.ctPayment.updatePayment({
-            id: payment.id,
-            pspReference: izycoPaymentResponse.paymentId,
-            transaction: {
-                type: 'Charge',
-                state: isSuccess ? 'Success' : 'Failure',
-                amount: toMoney(cart.totalPrice),
-                interactionId: izycoPaymentResponse.conversationId,
-            },
-            pspInteractions: [
-                connectPaymentsSdk.GenerateInterfaceInteractionCustomFieldsDraft({
-                    interactionId: izycoPaymentResponse.conversationId,
-                    createdAt: new Date().toISOString(),
-                    type: 'iyzico-non3ds',
-                    response: JSON.stringify({
-                        status: izycoPaymentResponse.status,
-                        paymentId: izycoPaymentResponse.paymentId,
-                        fraudStatus: izycoPaymentResponse.fraudStatus,
-                        errorCode: izycoPaymentResponse.errorCode,
-                        errorMessage: izycoPaymentResponse.errorMessage,
-                    }),
-                }),
-            ],
-        });
-
-        return {
-            id: payment.id,
-            version: 1,
-            key: transactionDraft.key,
-            transactionStatus: {
-                state: isSuccess ? 'Completed' : 'Failed',
-                ...(isSuccess
-                    ? {}
-                    : {
-                        errors: [
-                            {
-                                code: izycoPaymentResponse.errorCode ?? 'IyzicoError',
-                                message: izycoPaymentResponse.errorMessage ?? 'Payment failed',
-                            },
-                        ],
-                    }),
-            },
-        };
-    }
-
     private isSubscriptionCart(cart: connectPaymentsSdk.Cart): boolean {
         const field = this.config.get('SUBSCRIPTION_DETECTION_FIELD');
         const withCode = cart.lineItems.filter(li => li.custom?.fields?.[field] != null);
@@ -301,7 +188,7 @@ export class IyzicoPaymentService {
             ...(isSubscription ? { checkoutFormToken: token } : { token }),
         });
 
-        this.logger.log(`RAW PWI RETRIEVE: ${JSON.stringify(paymentresult, null, 2)}`);
+        this.logger.log(`RAW RETRIEVE: ${JSON.stringify(paymentresult, null, 2)}`);
 
         return toIyzicoPaymentResult(paymentresult);
     }
@@ -328,7 +215,7 @@ export class IyzicoPaymentService {
                 type,
                 state,
                 amount: toMoney(payment.amountPlanned),
-                interactionId: token            
+                interactionId: token
             },
 
             pspInteractions: [
@@ -344,6 +231,25 @@ export class IyzicoPaymentService {
                     })
                 })
             ]
+        });
+    }
+
+    private async recordCardMetadata(
+        payment: connectPaymentsSdk.Payment,
+        iyzicoResult: IyzicoRetrieveResponse,
+    ): Promise<void> {
+        await this.ctPayment.updatePayment({
+            id: payment.id,
+            customFields: {
+                type: { key: 'iyzico-payment-card-info', typeId: 'type' },
+                fields: {
+                    cardType: iyzicoResult.cardType,
+                    cardAssociation: iyzicoResult.cardAssociation,
+                    cardFamily: iyzicoResult.cardFamily,
+                    binNumber: iyzicoResult.binNumber,
+                    lastFourDigits: iyzicoResult.lastFourDigits,
+                },
+            },
         });
     }
 
@@ -423,7 +329,7 @@ export class IyzicoPaymentService {
                 return;
             }
 
-            const savedPaymentMethod = await this.iyzicoCardService.save(cart.customerId, savedCard);
+            const savedPaymentMethod = await this.iyzicoCardService.saveCard(cart.customerId, savedCard);
 
             if (savedPaymentMethod?.id) {
                 await this.ctPayment.updatePayment({

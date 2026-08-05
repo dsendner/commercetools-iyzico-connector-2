@@ -10,6 +10,14 @@ export interface SavedCard {
     expiryYear?: number;
 }
 
+export interface SavedSession {
+    sessionToken: string;
+    memberIdentifier: string;
+    brand?: string;
+    lastFourDigits?: string;
+    bin?: string;
+}
+
 export interface IyzicoStoreCard {
     cardToken: string;
     expireMonth?: string;
@@ -28,7 +36,7 @@ export interface CardExpiry {
 
 export function toSavedCard(paymentResult: any): SavedCard | undefined {
     if (!paymentResult.cardToken || !paymentResult.cardUserKey) return undefined;
-    
+
     return {
         cardToken: paymentResult.cardToken,
         cardUserKey: paymentResult.cardUserKey,
@@ -40,12 +48,24 @@ export function toSavedCard(paymentResult: any): SavedCard | undefined {
     };
 }
 export function packCardToken(cardUserKey: string, cardToken: string): string {
-   return `${cardUserKey}::${cardToken}`;
+    return `CARD::${cardUserKey}::${cardToken}`;
 }
 
 export function unpackCardToken(packed: string): { cardUserKey: string; cardToken: string } {
-  const [cardUserKey, cardToken] = packed.split('::');
-  return { cardUserKey, cardToken };
+    const [cardUserKey, cardToken] = packed.split('::');
+    return { cardUserKey, cardToken };
+}
+
+export function packSession(sessionToken: string, memberIdentifier: string): string {
+    return `SESSION::${sessionToken}::${memberIdentifier}`;
+}
+
+export function unpackSession(packed: string): { sessionToken: string; memberIdentifier: string } {
+    const [sessionToken, memberIdentifier] = packed.split('::');
+    if (!sessionToken || !memberIdentifier) {
+        throw new Error('Malformed stored PWI session token');
+    }
+    return { sessionToken, memberIdentifier };
 }
 
 export function findExpiry(list: IyzicoCardListResponse, cardToken: string): CardExpiry | undefined {

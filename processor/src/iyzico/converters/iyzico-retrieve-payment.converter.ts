@@ -6,10 +6,6 @@ export type IyzicoPaymentStatus =
     | 'BANK_FAIL'
     | 'PENDING_CREDIT';
 
-
-
-// Response of POST /payment/iyzipos/checkoutform/auth/ecom/detail
-
 export interface IyzicoRetrieveResponse {
     status: 'Success' | 'Failure';          // API-call level
     errorCode?: string;
@@ -28,7 +24,8 @@ export interface IyzicoRetrieveResponse {
     token?: string;
     signature?: string;                     // hex HMAC for integrity verification
     cardAssociation?: string;               // VISA | MASTER_CARD | AMERICAN_EXPRESS | TROY
-    cardType?: string;                      // CREDIT_CARD | DEBIT_CARD | PREPAID_CARD
+    cardType?: string;                       // CREDIT_CARD | DEBIT_CARD | PREPAID_CARD
+    cardFamily?: string;
     lastFourDigits?: string;
     cardToken?: string;
     cardUserKey?: string;
@@ -44,6 +41,7 @@ export interface IyzicoPaymentResult {
     cardUserKey?: string;
     cardAssociation?: string;               // VISA | MASTER_CARD | AMERICAN_EXPRESS | TROY
     cardType?: string;                      // CREDIT_CARD | DEBIT_CARD | PREPAID_CARD
+    cardFamily?: string;
     lastFourDigits?: string;
     binNumber?: string;
     errorCode?: string;

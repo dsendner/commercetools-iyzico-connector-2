@@ -1,8 +1,8 @@
 import { Body, Controller, Get, HttpCode, NotImplementedException, Param, Post, UseGuards } from '@nestjs/common';
 import type { TransactionDraft, TransactionResponse } from './transaction.dto';
 import { StatusResponseSchemaDTO } from './status.dto';
-import { JwtAuthGuard } from 'src/commercetools/jwt-auth.guard';
-import { IyzicoRecurringService } from 'src/iyzico/iyzico-recurring.service';
+import { JwtAuthGuard } from '../commercetools/jwt-auth.guard';
+import { IyzicoRecurringService } from '../iyzico/iyzico-recurring.service';
 
 @Controller('operations')
 export class OperationsController {
