@@ -1,5 +1,3 @@
-import { IyzicoPaymentResult } from "./iyzico-retrieve-payment.converter";
-
 export interface SavedCard {
     cardToken: string;
     cardUserKey: string;
@@ -47,26 +45,19 @@ export function toSavedCard(paymentResult: any): SavedCard | undefined {
         expiryYear: paymentResult.expiryYear
     };
 }
+
 export function packCardToken(cardUserKey: string, cardToken: string): string {
-    return `CARD::${cardUserKey}::${cardToken}`;
+    return `${cardUserKey}::${cardToken}`;
 }
 
 export function unpackCardToken(packed: string): { cardUserKey: string; cardToken: string } {
     const [cardUserKey, cardToken] = packed.split('::');
+    if (!cardUserKey || !cardToken) {
+        throw new Error('Malformed stored card token');
+    }
     return { cardUserKey, cardToken };
 }
 
-export function packSession(sessionToken: string, memberIdentifier: string): string {
-    return `SESSION::${sessionToken}::${memberIdentifier}`;
-}
-
-export function unpackSession(packed: string): { sessionToken: string; memberIdentifier: string } {
-    const [sessionToken, memberIdentifier] = packed.split('::');
-    if (!sessionToken || !memberIdentifier) {
-        throw new Error('Malformed stored PWI session token');
-    }
-    return { sessionToken, memberIdentifier };
-}
 
 export function findExpiry(list: IyzicoCardListResponse, cardToken: string): CardExpiry | undefined {
     const card = list.cardDetails?.find(c => c.cardToken === cardToken);

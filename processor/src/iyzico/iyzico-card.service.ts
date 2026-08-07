@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { IyzicoClient } from "./iyzico.client";
-import { findExpiry, IyzicoCardListResponse, packCardToken, packSession, SavedCard, SavedSession, unpackCardToken } from "./converters/iyzico-card-storage.converter";
+import { findExpiry, IyzicoCardListResponse, packCardToken, SavedCard, unpackCardToken } from "./converters/iyzico-card-storage.converter";
 import { PaymentMethod, type CommercetoolsPaymentMethodService } from "@commercetools/connect-payments-sdk";
 import { CT_PAYMENT_METHOD_SERVICE } from "../commercetools/tokens";
 
@@ -26,14 +26,13 @@ export class IyzicoCardService {
             method: brand,
             token: packCardToken(card.cardUserKey, card.cardToken),
             customFields: {
-                type: { key: 'commercetools-checkout-card-details', typeId: 'type' },
+                type: { key: 'iyzico-payment-method', typeId: 'type' },
                 fields: {
                     brand,
                     lastFour: lastFourDigits,
                     bin,
                     expiryMonth: expiry?.month ? Number(expiry.month) : undefined,
-                    expiryYear: expiry?.year ? Number(expiry.year) : undefined,
-                    storePaymentMethod: true,
+                    expiryYear: expiry?.year ? Number(expiry.year) : undefined
                 },
             },
         });
@@ -42,37 +41,17 @@ export class IyzicoCardService {
         return paymentMethod;
     }
 
-    async saveSession(customerId: string, session: SavedSession): Promise<PaymentMethod> {
-    return this.ctPaymentMethods.save({
-        customerId,
-        paymentInterface: 'iyzico',
-        method: session.brand || 'PWI',
-        token: packSession(session.sessionToken, session.memberIdentifier),
-        customFields: {
-            type: { key: 'commercetools-checkout-card-details', typeId: 'type' },
-            fields: {
-                brand: session.brand,
-                lastFour: session.lastFourDigits,
-                bin: session.bin,
-                storePaymentMethod: true,
-            },
-        },
-    });
-}
-
     async getUserKey(customerId?: string): Promise<string | undefined> {
-    if (!customerId) return undefined;
+        if (!customerId) return undefined;
 
-    const { results } = await this.ctPaymentMethods.find({
-        customerId,
-        paymentInterface: 'iyzico',
-    });
+        const { results } = await this.ctPaymentMethods.find({
+            customerId,
+            paymentInterface: 'iyzico',
+        });
 
-    const cardMethod = results.find(pm => pm.token?.value?.startsWith('CARD::'));
-    if (!cardMethod?.token?.value) return undefined;
-
-    return unpackCardToken(cardMethod.token.value).cardUserKey;
-}
+        const token = results[0]?.token?.value;
+        return token ? unpackCardToken(token).cardUserKey : undefined;
+    }
 
     private async fetchExpiry(cardUserKey: string, cardToken: string) {
         const cards = await this.iyzico.post<IyzicoCardListResponse>('/cardstorage/cards', {

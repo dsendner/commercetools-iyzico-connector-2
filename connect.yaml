@@ -54,7 +54,7 @@ deployAs:
         - key: SUBSCRIPTION_DETECTION_FIELD
           description: LineItem custom field key whose presence indicates a subscription
           required: false
-          default: 'frequency_code'
+          default: 'frequencyCode'
       securedConfiguration:
         - key: CTP_CLIENT_SECRET
           description: commercetools client secret

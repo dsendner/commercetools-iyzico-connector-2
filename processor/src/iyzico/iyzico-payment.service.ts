@@ -4,14 +4,10 @@ import { IyzicoInitializeResponse, toIyzicoInitializeRequest } from './converter
 import { IyzicoClient } from './iyzico.client';
 import { getRequestContext } from '../commercetools/request-context';
 import { buildCallbackUrl } from './helper.converter';
-import { IyzicoPaymentResult, IyzicoRetrieveResponse, handleIyzicoError, toIyzicoPaymentResult } from './converters/iyzico-retrieve-payment.converter';
-import { PaymentResponse } from './iyzico-payment.type';
+import { IyzicoPaymentResult, IyzicoRetrieveResponse, toIyzicoPaymentResult } from './converters/iyzico-retrieve-payment.converter';
 import { IyzicoWebhookPayload } from './converters/webhook.converter';
-import { toSavedCard as toSavedCard, unpackCardToken } from './converters/iyzico-card-storage.converter';
 import { IyzicoCardService } from './iyzico-card.service';
-import { TransactionDraft, TransactionResponse } from '../operations/transaction.dto';
-import { IyzicoNon3dsResponse, toIyzicoNon3dsRequest } from './converters/iyzico-non-3ds.converter';
-import { CT_CART_SERVICE, CT_PAYMENT_METHOD_SERVICE, CT_PAYMENT_SERVICE } from '../commercetools/tokens';
+import { CT_CART_SERVICE, CT_PAYMENT_SERVICE } from '../commercetools/tokens';
 import { AppConfigService } from '../config/config.service';
 
 export interface CreateSessionRequest {
@@ -25,28 +21,41 @@ export interface CreateSessionResponse {
     paymentPageUrl: string;
 }
 
+type FlowEndpoints = { init: string; retrieve: string; retrieveTokenField: 'token' | 'checkoutFormToken' };
 
-const TRANSACTION_BY_OUTCOME: Record<string, { type: string; state: string }> = {
+const STANDARD: FlowEndpoints = {
+    init: '/payment/iyzipos/checkoutform/initialize/auth/ecom',
+    retrieve: '/payment/iyzipos/checkoutform/auth/ecom/detail',
+    retrieveTokenField: 'token',
+};
+
+const SUBSCRIPTION: FlowEndpoints = {
+    init: '/v1/pay-with-iyzico/third-party-session/checkout/init',
+    retrieve: '/v1/pay-with-iyzico/third-party-session/retrieve/payment',
+    retrieveTokenField: 'checkoutFormToken',
+};
+
+const LOCALE = 'tr';
+
+const TRANSACTION_BY_OUTCOME: Record<IyzicoPaymentResult['outcome'], { type: string; state: string }> = {
     Success: { type: 'Charge', state: 'Success' },
     Failure: { type: 'Charge', state: 'Failure' },
     Pending: { type: 'Charge', state: 'Pending' },
 };
 
-function settledChargeState(payment: connectPaymentsSdk.Payment): 'Success' | 'Failure' | undefined {
-    const charge = (payment.transactions ?? []).find(t => t.type === 'Charge');
-    if (charge?.state === 'Success') {
-        return charge.state as 'Success' | 'Failure';
-    }
-    return undefined;
+function toMoney(m: connectPaymentsSdk.Money): connectPaymentsSdk.Money {
+    return { centAmount: m.centAmount, currencyCode: m.currencyCode };
 }
 
-const INITIALIZE_ENDPOINT = '/payment/iyzipos/checkoutform/initialize/auth/ecom';
-const RETRIEVE_ENDPOINT = '/payment/iyzipos/checkoutform/auth/ecom/detail';
+function isFinalState(state: string | undefined): state is 'Success' | 'Failure' {
+    return state === 'Success' || state === 'Failure';
+}
 
-const PWI_INIT_ENDPOINT = '/v1/pay-with-iyzico/third-party-session/checkout/init';
-const PWI_RETRIEVE_ENDPOINT = '/v1/pay-with-iyzico/third-party-session/retrieve/payment';
+function finalChargeState(payment: connectPaymentsSdk.Payment): 'Success' | 'Failure' | undefined {
+    const state = (payment.transactions ?? []).find(t => t.type === 'Charge')?.state;
+    return isFinalState(state) ? state : undefined;
+}
 
-const toMoney = (m: connectPaymentsSdk.Money): connectPaymentsSdk.Money => ({ centAmount: m.centAmount, currencyCode: m.currencyCode });
 
 @Injectable()
 export class IyzicoPaymentService {
@@ -55,7 +64,6 @@ export class IyzicoPaymentService {
     constructor(
         @Inject(CT_CART_SERVICE) private readonly ctCart: connectPaymentsSdk.CommercetoolsCartService,
         @Inject(CT_PAYMENT_SERVICE) private readonly ctPayment: connectPaymentsSdk.CommercetoolsPaymentService,
-        @Inject(CT_PAYMENT_METHOD_SERVICE) private readonly ctPaymentMethods: connectPaymentsSdk.CommercetoolsPaymentMethodService,
         private readonly iyzico: IyzicoClient,
         private readonly iyzicoCardService: IyzicoCardService,
         private readonly config: AppConfigService,
@@ -63,134 +71,245 @@ export class IyzicoPaymentService {
 
     async createSession(req: CreateSessionRequest): Promise<CreateSessionResponse> {
         const cart = await this.ctCart.getCart({ id: req.cartId });
-
-        const isSubscription = this.isSubscriptionCart(cart);
+        const flow = this.flowFor(cart);
 
         const payment = await this.ctPayment.createPayment({
             amountPlanned: toMoney(cart.totalPrice),
             paymentMethodInfo: { paymentInterface: 'iyzico' },
         });
 
-        const customerId = cart?.customerId;
-        let cardUserKey: string | undefined;
+        const initResponse = await this.initCheckoutForm(cart, payment, req.clientIp, flow);
 
-        if (customerId) {
-            cardUserKey = await this.iyzicoCardService.getUserKey(customerId);
-        }
+        await this.persistInitialization(cart, payment, initResponse);
+        await this.ctCart.addPayment({ resource: cart, paymentId: payment.id });
 
-        const callbackUrl = this.callbackUrlFor(payment.id);
-        this.logger.log(`CART = ${JSON.stringify(cart)}`);
-
-        const checkoutFormInitResponse = await this.initCheckoutForm(
-            cart,
-            payment,
-            callbackUrl,
-            req.clientIp,
-            cardUserKey,
-            isSubscription,
-        );
-
-        await this.ctPayment.updatePayment({
-            id: payment.id,
-            pspReference: checkoutFormInitResponse.token,
-            transaction: {
-                type: 'Charge',
-                state: 'Initial',
-                amount: toMoney(cart.totalPrice),
-                interactionId: checkoutFormInitResponse.token,
-            },
-            pspInteractions: [
-                connectPaymentsSdk.GenerateInterfaceInteractionCustomFieldsDraft({
-                    interactionId: checkoutFormInitResponse.token,
-                    createdAt: new Date().toISOString(),
-                    type: 'iyzico-checkout-form',
-                    response: JSON.stringify({
-                        paymentPageUrl: checkoutFormInitResponse.paymentPageUrl,
-                    })
-                })
-            ]
-        });
-
-        await this.ctCart.addPayment({
-            resource: cart,
-            paymentId: payment.id,
-        });
+        this.logger.log(`INIT RESPONSE: checkoutFormContent=${!!initResponse.checkoutFormContent}, paymentPageUrl=${initResponse.paymentPageUrl}`);
 
         return {
             paymentReference: payment.id,
-            checkoutFormContent: checkoutFormInitResponse.checkoutFormContent,
-            paymentPageUrl: checkoutFormInitResponse.paymentPageUrl,
+            checkoutFormContent: initResponse.checkoutFormContent,
+            paymentPageUrl: initResponse.paymentPageUrl,
         };
     }
 
     async handleCallback(req: { token: string; returnUrl?: string }): Promise<string> {
         const payment = await this.findPaymentByToken(req.token);
+        const result = await this.finalizePayment(payment, req.token);
 
-        const paymentResult = await this.finalizePayment(payment, req.token);
-
-        const result: PaymentResponse = {
-            paymentReference: payment.id,
-            paymentStatus: paymentResult.paymentStatus,
-            ...handleIyzicoError(paymentResult)
-        };
-
-        if (!req.returnUrl) {
-            throw new Error('No return URL provided');
-            //TODO Fallback 
-        }
-        const redirect = new URL(req.returnUrl);
-        redirect.searchParams.set('paymentReference', result.paymentReference);
-        redirect.searchParams.set('paymentStatus', result.paymentStatus);
-
-        if (result.errorCode) {
-            redirect.searchParams.set('errorCode', result.errorCode);
-        }
-
-        if (result.errorMessage) {
-            redirect.searchParams.set('errorMessage', result.errorMessage);
-        }
-
-        return redirect.toString();
+        return this.buildReturnUrl(payment, result, req.returnUrl);
     }
 
     async handleWebhook(payload: IyzicoWebhookPayload, signature: string): Promise<void> {
         if (!this.iyzico.verifyWebhookSignature(payload, signature)) {
-            throw new UnauthorizedException("Invalid webhook signature");
+            throw new UnauthorizedException('Invalid webhook signature');
         }
 
         const payment = await this.findPaymentByToken(payload.token).catch(() => undefined);
-
         if (!payment) {
-            this.logger.warn(`Webhook for an unknown token ${payload.iyziEventTime} - Ignored`);
+            this.logger.warn(`Webhook for unknown token ${payload.token} — ignored`);
             return;
         }
+
         await this.finalizePayment(payment, payload.token);
     }
 
-    private isSubscriptionCart(cart: connectPaymentsSdk.Cart): boolean {
-        const field = this.config.get('SUBSCRIPTION_DETECTION_FIELD');
-        const withCode = cart.lineItems.filter(li => li.custom?.fields?.[field] != null);
+    private async initCheckoutForm(
+        cart: connectPaymentsSdk.Cart,
+        payment: connectPaymentsSdk.Payment,
+        clientIp: string,
+        flow: FlowEndpoints,
+    ): Promise<IyzicoInitializeResponse> {
+        const callbackUrl = this.callbackUrlFor(payment.id);
+        const cardUserKey = cart.customerId
+            ? await this.iyzicoCardService.getUserKey(cart.customerId)
+            : undefined;
 
-        this.logger.log(
-            `Cart ${cart.id}: ${withCode.length}/${cart.lineItems.length} lineItems with ${field}`,
+        const request = toIyzicoInitializeRequest(
+            cart, payment, callbackUrl, clientIp, cardUserKey, this.conversationIdFor(payment),
         );
 
-        return withCode.length > 0;
+        const response = await this.iyzico.post<IyzicoInitializeResponse>(flow.init, request);
+
+        if (response.status === 'Failure') {
+            this.logger.error(`Iyzico init failed on ${flow.init}: [${response.errorCode}] ${response.errorMessage}`);
+            throw new InternalServerErrorException('Could not start the checkout init payment');
+        }
+
+        return response;
     }
 
-    private async retrieveIyzicoPayment(paymentId: string, token: string, isSubscription: boolean): Promise<IyzicoPaymentResult> {
+    private async persistInitialization(
+        cart: connectPaymentsSdk.Cart,
+        payment: connectPaymentsSdk.Payment,
+        init: IyzicoInitializeResponse,
+    ): Promise<void> {
+        await this.ctPayment.updatePayment({
+            id: payment.id,
+            pspReference: init.token,
+            transaction: {
+                type: 'Charge',
+                state: 'Initial',
+                amount: toMoney(cart.totalPrice),
+                interactionId: init.token,
+            },
+            pspInteractions: [
+                connectPaymentsSdk.GenerateInterfaceInteractionCustomFieldsDraft({
+                    interactionId: init.token,
+                    createdAt: new Date().toISOString(),
+                    type: 'iyzico-checkout-form',
+                    response: JSON.stringify({ paymentPageUrl: init.paymentPageUrl }),
+                }),
+            ],
+        });
+    }
 
-        const endpoint = isSubscription ? PWI_RETRIEVE_ENDPOINT : RETRIEVE_ENDPOINT;
+    private async finalizePayment(
+        payment: connectPaymentsSdk.Payment,
+        token: string,
+    ): Promise<IyzicoPaymentResult> {
+        const settled = finalChargeState(payment);
+        if (settled) {
+            return {
+                outcome: settled,
+                fraudDecision: 'approved',
+                isFraud: false,
+                iyzicoPaymentId: payment.id,
+                errorMessage: settled === 'Failure' ? 'Payment could not be completed' : undefined,
+            };
+        }
 
-        const paymentresult = await this.iyzico.post<IyzicoRetrieveResponse>(endpoint, {
-            locale: 'tr',
-            conversationId: paymentId,
-            ...(isSubscription ? { checkoutFormToken: token } : { token }),
+        const cart = await this.ctCart.getCartByPaymentId({ paymentId: payment.id }).catch(() => undefined);
+        if (!cart) {
+            this.logger.warn(`Cart not found for payment ${payment.id}`);
+            return {
+                outcome: 'Failure',
+                fraudDecision: 'approved',
+                isFraud: false,
+                iyzicoPaymentId: payment.id,
+                errorMessage: 'Cart not found',
+            };
+        }
+        const flow = this.flowFor(cart);
+        const retrieve = await this.retrieveIyzicoPayment(payment, token, flow);
+        const result = toIyzicoPaymentResult(retrieve);
+
+        await this.recordPaymentOnCommercetools(payment, result, token);
+
+        if (result.outcome === 'Success') {
+            await this.recordCardMetadata(payment, result);
+
+            if (result.cardUserKey && result.cardToken) {
+                await this.storeCard(payment, cart, result);
+            }
+
+        }
+
+
+
+        return result;
+    }
+
+    private async storeCard(
+    payment: connectPaymentsSdk.Payment,
+    cart: connectPaymentsSdk.Cart,
+    result: IyzicoPaymentResult,
+): Promise<void> {
+    if (!cart.customerId) {
+        this.logger.warn(`Card storage skipped: guest cart on payment ${payment.id}`);
+        return;
+    }
+
+    if (!result.cardUserKey || !result.cardToken) {
+        this.logger.warn(`No card token on payment ${payment.id} — nothing to store`);
+        return;
+    }
+
+    try {
+        const saved = await this.iyzicoCardService.saveCard(cart.customerId, {
+            cardUserKey: result.cardUserKey,
+            cardToken: result.cardToken,
+            brand: result.cardBrand,
+            lastFourDigits: result.lastFourDigits,
+            bin: result.binNumber,
         });
 
-        this.logger.log(`RAW RETRIEVE: ${JSON.stringify(paymentresult, null, 2)}`);
+        await this.ctPayment.updatePayment({
+            id: payment.id,
+            customFieldValues: { cardId: saved.id },
+        });
 
-        return toIyzicoPaymentResult(paymentresult);
+        this.logger.log(`Card stored as PaymentMethod ${saved.id} for customer ${cart.customerId}`);
+    } catch (error) {
+        this.logger.error(`Could not save card for payment ${payment.id}: ${error}`);
+    }
+}
+
+    private async retrieveIyzicoPayment(
+        payment: connectPaymentsSdk.Payment,
+        token: string,
+        flow: FlowEndpoints,
+    ): Promise<IyzicoRetrieveResponse> {
+        const response = await this.iyzico.post<IyzicoRetrieveResponse>(flow.retrieve, {
+            locale: LOCALE,
+            conversationId: this.conversationIdFor(payment),
+            [flow.retrieveTokenField]: token,
+        });
+
+        this.logger.log(`RAW RETRIEVE: ${JSON.stringify(response, null, 2)}`);
+        return response;
+    }
+
+    private async recordPaymentOnCommercetools(
+        payment: connectPaymentsSdk.Payment,
+        result: IyzicoPaymentResult,
+        token: string,
+    ): Promise<void> {
+        const { type, state } = TRANSACTION_BY_OUTCOME[result.outcome];
+
+        await this.ctPayment.updatePayment({
+            id: payment.id,
+            paymentMethod: result.cardBrand,
+            transaction: {
+                type,
+                state,
+                amount: toMoney(payment.amountPlanned),
+                interactionId: token,
+            },
+            pspInteractions: [
+                connectPaymentsSdk.GenerateInterfaceInteractionCustomFieldsDraft({
+                    interactionId: token,
+                    createdAt: new Date().toISOString(),
+                    type: `iyzico-confirm-${result.outcome.toLowerCase()}`,
+                    response: JSON.stringify({
+                        outcome: result.outcome,
+                        fraudDecision: result.fraudDecision,
+                        rawPaymentStatus: result.rawPaymentStatus,
+                        installment: result.installment,
+                        errorCode: result.errorCode,
+                        errorMessage: result.errorMessage,
+                    }),
+                }),
+            ],
+        });
+    }
+
+    private async recordCardMetadata(
+        payment: connectPaymentsSdk.Payment,
+        result: IyzicoPaymentResult,
+    ): Promise<void> {
+        await this.ctPayment.updatePayment({
+            id: payment.id,
+            customFields: {
+                type: { key: 'iyzico-payment-card-info', typeId: 'type' },
+                fields: {
+                    cardType: result.cardType,
+                    cardAssociation: result.cardAssociation,
+                    cardFamily: result.cardFamily,
+                    binNumber: result.binNumber,
+                    lastFourDigits: result.lastFourDigits,
+                },
+            },
+        });
     }
 
     private async findPaymentByToken(token: string): Promise<connectPaymentsSdk.Payment> {
@@ -201,146 +320,68 @@ export class IyzicoPaymentService {
         return payment;
     }
 
-    private async recordPaymentOnCommercetools(
-        payment: connectPaymentsSdk.Payment,
-        iyzicoPaymentResult: IyzicoPaymentResult,
-        token: string
-    ): Promise<void> {
-        const { type, state } = TRANSACTION_BY_OUTCOME[iyzicoPaymentResult.paymentStatus];
+    private isSubscriptionCart(cart: connectPaymentsSdk.Cart): boolean {
+        const field = this.config.get('SUBSCRIPTION_DETECTION_FIELD');
+        const withCode = cart.lineItems.filter(li => li.custom?.fields?.[field] != null);
 
-        await this.ctPayment.updatePayment({
-            id: payment.id,
-            paymentMethod: iyzicoPaymentResult.cardBrand,
-            transaction: {
-                type,
-                state,
-                amount: toMoney(payment.amountPlanned),
-                interactionId: token
-            },
-
-            pspInteractions: [
-                connectPaymentsSdk.GenerateInterfaceInteractionCustomFieldsDraft({
-                    interactionId: token,
-                    createdAt: new Date().toISOString(),
-                    type: `iyzico-confirm-${iyzicoPaymentResult.paymentStatus.toLocaleLowerCase()}`,
-                    response: JSON.stringify({
-                        paymentStatus: iyzicoPaymentResult.paymentStatus,
-                        fraudStatus: iyzicoPaymentResult.fraudStatus,
-                        errorCode: iyzicoPaymentResult.errorCode,
-                        errorMessage: iyzicoPaymentResult.errorMessage,
-                    })
-                })
-            ]
-        });
+        this.logger.log(`Cart ${cart.id}: ${withCode.length}/${cart.lineItems.length} lineItems with ${field}`);
+        return withCode.length > 0;
     }
 
-    private async recordCardMetadata(
-        payment: connectPaymentsSdk.Payment,
-        iyzicoResult: IyzicoRetrieveResponse,
-    ): Promise<void> {
-        await this.ctPayment.updatePayment({
-            id: payment.id,
-            customFields: {
-                type: { key: 'iyzico-payment-card-info', typeId: 'type' },
-                fields: {
-                    cardType: iyzicoResult.cardType,
-                    cardAssociation: iyzicoResult.cardAssociation,
-                    cardFamily: iyzicoResult.cardFamily,
-                    binNumber: iyzicoResult.binNumber,
-                    lastFourDigits: iyzicoResult.lastFourDigits,
-                },
-            },
-        });
+    private flowFor(cart: connectPaymentsSdk.Cart): FlowEndpoints {
+        return this.isSubscriptionCart(cart) ? SUBSCRIPTION : STANDARD;
     }
 
-    private async initCheckoutForm(
-        cart: connectPaymentsSdk.Cart,
-        payment: connectPaymentsSdk.Payment,
-        callbackUrl: string,
-        clientIp: string,
-        cardUserKey?: string,
-        isSubscription = false,
-    ): Promise<IyzicoInitializeResponse> {
-        const iyzicoRequest = toIyzicoInitializeRequest(cart, payment, callbackUrl, clientIp, cardUserKey);
-
-        const endpoint = isSubscription ? PWI_INIT_ENDPOINT : INITIALIZE_ENDPOINT;
-
-        const response = await this.iyzico.post<IyzicoInitializeResponse>(endpoint, iyzicoRequest);
-
-        if (response.status === 'Failure') {
-            this.logger.error(`Iyzico init failed: [${response.errorCode}] ${response.errorMessage}`);
-            throw new InternalServerErrorException('Could not start the checkout init payment');
-        }
-
-        return response;
+    private conversationIdFor(payment: connectPaymentsSdk.Payment): string {
+        const ctx = getRequestContext();
+        return connectPaymentsSdk.getFutureOrderNumberFromContext(ctx) ?? payment.id;
     }
 
     private callbackUrlFor(id: string): string {
         const ctx = getRequestContext();
-        const baseUrl = connectPaymentsSdk.getProcessorUrlFromContext(ctx) ?? process.env.PROCESSOR_PUBLIC_URL;
+
+        const fromContext = connectPaymentsSdk.getProcessorUrlFromContext(ctx);
+        const fromEnv = process.env.NODE_ENV !== 'production'
+            ? process.env.PROCESSOR_PUBLIC_URL
+            : undefined;
+
+        const baseUrl = fromContext ?? fromEnv;
 
         if (!baseUrl) {
             throw new InternalServerErrorException('Could not determine processor URL');
         }
 
-        const merchantReturnUrl = connectPaymentsSdk.getMerchantReturnUrlFromContext(ctx) ?? process.env.DEFAULT_RETURN_URL;
+        const merchantReturnUrl = connectPaymentsSdk.getMerchantReturnUrlFromContext(ctx)
+            ?? (process.env.NODE_ENV !== 'production' ? process.env.DEFAULT_RETURN_URL : undefined);
 
-        return buildCallbackUrl(baseUrl, id, connectPaymentsSdk.getCtSessionIdFromContext(ctx), merchantReturnUrl);
+        return buildCallbackUrl(
+            baseUrl,
+            id,
+            connectPaymentsSdk.getCtSessionIdFromContext(ctx),
+            merchantReturnUrl,
+        );
     }
 
-    private async finalizePayment(payment: connectPaymentsSdk.Payment, token: string): Promise<IyzicoPaymentResult> {
-        const settled = settledChargeState(payment);
-
-        const cart = await this.ctCart.getCartByPaymentId({ paymentId: payment.id }).catch(() => undefined);
-        if (!cart) {
-            this.logger.warn(`Cart not found for payment ${payment.id}`);
-            return {
-                iyzicoPaymentId: payment.id,
-                paymentStatus: 'Failure',
-                errorMessage: 'Cart not found',
-            };
+    private buildReturnUrl(
+        payment: connectPaymentsSdk.Payment,
+        result: IyzicoPaymentResult,
+        returnUrl?: string,
+    ): string {
+        if (!returnUrl) {
+            this.logger.warn(`No returnUrl on callback for payment ${payment.id}`);
+            throw new InternalServerErrorException('No return URL available');
         }
-        if (settled) {
-            return {
-                iyzicoPaymentId: payment.id,
-                paymentStatus: settled,
-                errorMessage: settled === 'Failure' ? 'Payment could not be completed' : undefined,
-            };
-        }
-        const isSubscription = this.isSubscriptionCart(cart);
-        const paymentResult = await this.retrieveIyzicoPayment(payment.id, token, isSubscription);
 
-        await this.recordPaymentOnCommercetools(payment, paymentResult, token);
-        await this.saveCardIfPresent(payment, paymentResult);
-        return paymentResult;
-    }
+        const url = new URL(returnUrl);
+        url.searchParams.set('paymentReference', payment.id);
+        url.searchParams.set('paymentStatus', result.outcome);
 
-    private async saveCardIfPresent(payment: connectPaymentsSdk.Payment, paymentResult: IyzicoPaymentResult): Promise<void> {
-        const savedCard = toSavedCard(paymentResult);
+        const errorCode = result.isFraud ? 'PAYMENT_DECLINED' : result.errorCode;
+        const errorMessage = result.isFraud ? 'Payment could not be completed' : result.errorMessage;
 
-        if (!savedCard) {
-            return;
-        }
-        try {
-            const cart = await this.ctCart.getCartByPaymentId({ paymentId: payment.id });
+        if (errorCode) url.searchParams.set('errorCode', errorCode);
+        if (errorMessage) url.searchParams.set('errorMessage', errorMessage);
 
-            if (!cart || !cart.customerId) {
-                this.logger.warn(`Card storage skipped: Payment ${payment.id} is associated with a guest cart.`);
-                return;
-            }
-
-            const savedPaymentMethod = await this.iyzicoCardService.saveCard(cart.customerId, savedCard);
-
-            if (savedPaymentMethod?.id) {
-                await this.ctPayment.updatePayment({
-                    id: payment.id,
-                    customFieldValues: {
-                        cardId: savedPaymentMethod.id,
-                    },
-                });
-            }
-        } catch (error) {
-            this.logger.error(`Could not save card for payment ${payment.id}: ${error}`);
-        }
+        return url.toString();
     }
 }

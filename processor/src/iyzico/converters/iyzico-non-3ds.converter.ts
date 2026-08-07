@@ -85,35 +85,44 @@ export interface IyzicoNon3dsResponse {
   errorGroup?: string;
 }
 
+type Amount = { centAmount: number; currencyCode: string; fractionDigits?: number };
+
 export function toIyzicoNon3dsRequest(
   cart: Cart,
   payment: Payment,
+  amount: Amount,
   cardToken: string,
   cardUserKey: string,
 ): IyzicoNon3dsRequest {
-  const total = cart.totalPrice;
-  const price = centAmountToIyzicoPrice(total.centAmount, total.fractionDigits);
-  const basketItems = mapBasketItems(cart);
 
-  validateBasketTotal(basketItems, total, price);
+  const price = centAmountToIyzicoPrice(
+    amount.centAmount,
+    amount.fractionDigits ?? cart.totalPrice.fractionDigits,
+  );
 
   return {
     locale: toIyzicoLocale(cart.locale),
     conversationId: payment.id,
     price,
     paidPrice: price,
-    currency: total.currencyCode,
+    currency: amount.currencyCode,
     installment: 1,
     paymentChannel: 'WEB',
     basketId: cart.id,
-    paymentGroup: 'PRODUCT',
+    paymentGroup: 'SUBSCRIPTION',
     paymentCard: {
       cardToken,
-      cardUserKey
+      cardUserKey,
     },
     buyer: mapBuyer(cart, '127.0.0.1'),
     billingAddress: mapAddress(cart.billingAddress),
     shippingAddress: mapAddress(cart.shippingAddress ?? cart.billingAddress),
-    basketItems,
+    basketItems: [{
+      id: cart.id,
+      name: 'Subscription renewal',
+      category1: 'Subscription',
+      itemType: 'VIRTUAL',
+      price,
+    }],
   };
 }

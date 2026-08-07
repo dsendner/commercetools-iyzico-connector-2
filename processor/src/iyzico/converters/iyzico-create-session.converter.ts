@@ -37,7 +37,8 @@ export function toIyzicoInitializeRequest(
   payment: Payment,
   callbackUrl: string,
   clientIp: string,
-  cardUserKey?: string,
+  cardUserKey: string | undefined,
+  conversationId: string
 ): IyzicoInitializeRequest {
   const total = cart.totalPrice;
   const price = centAmountToIyzicoPrice(total.centAmount, total.fractionDigits);
@@ -47,7 +48,7 @@ export function toIyzicoInitializeRequest(
 
   return {
     locale: toIyzicoLocale(cart.locale),
-    conversationId: payment.id,
+    conversationId: conversationId,
     price,
     paidPrice: price,
     currency: total.currencyCode,
