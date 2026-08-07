@@ -15,6 +15,7 @@ export const envSchema = z.object({
     CTP_CHECKOUT_URL: z.string().url(),
     CTP_JWKS_URL: z.string().url(),
     CTP_JWT_ISSUER: z.string().min(1),
+    ALLOWED_ORIGINS: z.string().min(1),
 
     IYZICO_BASE_URL: z.string().url(),
     IYZICO_API_KEY: z.string().min(1),
