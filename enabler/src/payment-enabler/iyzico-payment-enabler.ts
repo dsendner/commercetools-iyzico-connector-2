@@ -66,7 +66,7 @@ class IyzicoDropin implements PaymentDropinComponent {
   }
 
   private async initSession(): Promise<CheckoutFormInitResponse> {
-    const response = await fetch(`${this.options.processorUrl}/iyzico/sessions`, {
+    const response = await fetch(`${this.options.processorUrl}/iyzico/session`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
