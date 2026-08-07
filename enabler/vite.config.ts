@@ -5,9 +5,9 @@ export default defineConfig({
     outDir: 'public',
     emptyOutDir: true,
     lib: {
-      name: 'IyzicoEnabler',
+      name: 'Connector',
       entry: "./src/index.ts",
-      fileName: "iyzico-enabler",
+      fileName: (format) => `connector-enabler.${format}.js`,
       formats: ["es"],
     }
   },

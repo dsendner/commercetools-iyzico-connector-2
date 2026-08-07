@@ -14,6 +14,15 @@ export class IyzicoCardService {
     ) { }
 
     async saveCard(customerId: string, card: SavedCard): Promise<PaymentMethod> {
+
+        const tokenValue = packCardToken(card.cardUserKey, card.cardToken);
+
+        const existing = await this.findByToken(customerId, tokenValue);
+        if (existing) {
+            this.logger.log(`Reusing existing PaymentMethod ${existing.id} for customer ${customerId}`);
+            return existing;
+        }
+
         const expiry = await this.fetchExpiry(card.cardUserKey, card.cardToken);
 
         const brand = card.brand || (card as any).cardAssociation || 'card';
@@ -24,7 +33,7 @@ export class IyzicoCardService {
             customerId,
             paymentInterface: 'iyzico',
             method: brand,
-            token: packCardToken(card.cardUserKey, card.cardToken),
+            token: tokenValue,
             customFields: {
                 type: { key: 'iyzico-payment-method', typeId: 'type' },
                 fields: {
@@ -40,6 +49,7 @@ export class IyzicoCardService {
         this.logger.log(`Saved card for customer ${customerId}`);
         return paymentMethod;
     }
+
 
     async getUserKey(customerId?: string): Promise<string | undefined> {
         if (!customerId) return undefined;
@@ -59,5 +69,14 @@ export class IyzicoCardService {
             cardUserKey,
         });
         return findExpiry(cards, cardToken);
+    }
+
+    private async findByToken(customerId: string, tokenValue: string): Promise<PaymentMethod | undefined> {
+        const { results } = await this.ctPaymentMethods.find({
+            customerId,
+            paymentInterface: 'iyzico',
+        });
+
+        return results.find(pm => pm.token?.value === tokenValue);
     }
 }
