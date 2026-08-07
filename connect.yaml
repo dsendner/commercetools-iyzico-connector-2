@@ -55,6 +55,10 @@ deployAs:
           description: LineItem custom field key whose presence indicates a subscription
           required: false
           default: 'frequencyCode'
+        - key: ALLOWED_ORIGINS
+          description: Comma-separated allowed origins for the enabler (prod only)
+          required: false
+          default: ''
       securedConfiguration:
         - key: CTP_CLIENT_SECRET
           description: commercetools client secret
