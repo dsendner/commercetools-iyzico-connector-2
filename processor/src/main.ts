@@ -6,9 +6,7 @@ async function bootstrap() {
 
   const port = Number(process.env.PORT);
 
-  await app.listen(port, '0.0.0.0');
-
-  app.enableCors({
+    app.enableCors({
     origin: process.env.NODE_ENV === 'production'
       ? process.env.ALLOWED_ORIGINS?.split(',').map(s => s.trim())
       : true,
@@ -16,6 +14,8 @@ async function bootstrap() {
     allowedHeaders: ['Content-Type', 'X-Session-Id', 'Authorization'],
     credentials: true,
   });
+
+  await app.listen(port, '0.0.0.0');
 
   console.log(`Processor listening on ${port}`);
 }
