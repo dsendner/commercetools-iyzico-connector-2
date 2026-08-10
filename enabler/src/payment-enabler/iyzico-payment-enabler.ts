@@ -85,17 +85,31 @@ class IyzicoDropin implements PaymentDropinComponent {
   private injectCheckoutForm(checkoutFormContent: string): void {
     if (!this.container) return;
 
+    console.log("Iyzico received content :", checkoutFormContent);
+
     this.container.innerHTML = checkoutFormContent;
 
-    // innerHTML does not execute <script> tags — recreate them manually
     const scripts = this.container.querySelectorAll('script');
-    scripts.forEach((oldScript) => {
-      const newScript = document.createElement('script');
-      Array.from(oldScript.attributes).forEach((attr) =>
-        newScript.setAttribute(attr.name, attr.value),
-      );
-      newScript.textContent = oldScript.textContent;
-      oldScript.parentNode?.replaceChild(newScript, oldScript);
-    });
+
+    if (scripts.length === 0) {
+      console.error("Error while rendering Iyzico checkout form - no content found!");
+      return;
+    }
+
+    setTimeout(() => {
+      scripts.forEach((oldScript) => {
+        const newScript = document.createElement('script');
+
+        Array.from(oldScript.attributes).forEach((attr) =>
+          newScript.setAttribute(attr.name, attr.value),
+        );
+        
+        newScript.text = oldScript.textContent || oldScript.text || '';
+        
+        document.body.appendChild(newScript);
+        
+        console.log("Iyzico script has been executed!");
+      });
+    }, 100);
   }
 }
