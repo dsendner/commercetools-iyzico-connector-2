@@ -26,7 +26,7 @@ export class IyzicoPaymentEnabler implements PaymentEnabler {
 }
 
 class IyzicoDropinBuilder implements PaymentDropinBuilder {
-  public dropinHasSubmit = false;
+  public dropinHasSubmit = true;
 
   constructor(private readonly options: EnablerOptions) {}
 
