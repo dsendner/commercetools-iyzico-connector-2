@@ -26,7 +26,7 @@ export class IyzicoPaymentEnabler implements PaymentEnabler {
 }
 
 class IyzicoDropinBuilder implements PaymentDropinBuilder {
-  public dropinHasSubmit = true;
+  public dropinHasSubmit = false;
 
   constructor(private readonly options: EnablerOptions) {}
 
@@ -85,8 +85,6 @@ class IyzicoDropin implements PaymentDropinComponent {
   private injectCheckoutForm(checkoutFormContent: string): void {
     if (!this.container) return;
 
-    console.log("Iyzico received content :", checkoutFormContent);
-
     this.container.innerHTML = checkoutFormContent;
 
     const scripts = this.container.querySelectorAll('script');
@@ -107,8 +105,6 @@ class IyzicoDropin implements PaymentDropinComponent {
         newScript.text = oldScript.textContent || oldScript.text || '';
         
         document.body.appendChild(newScript);
-        
-        console.log("Iyzico script has been executed!");
       });
     }, 100);
   }
