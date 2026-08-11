@@ -210,39 +210,39 @@ export class IyzicoPaymentService {
     }
 
     private async storeCard(
-    payment: connectPaymentsSdk.Payment,
-    cart: connectPaymentsSdk.Cart,
-    result: IyzicoPaymentResult,
-): Promise<void> {
-    if (!cart.customerId) {
-        this.logger.warn(`Card storage skipped: guest cart on payment ${payment.id}`);
-        return;
+        payment: connectPaymentsSdk.Payment,
+        cart: connectPaymentsSdk.Cart,
+        result: IyzicoPaymentResult,
+    ): Promise<void> {
+        if (!cart.customerId) {
+            this.logger.warn(`Card storage skipped: guest cart on payment ${payment.id}`);
+            return;
+        }
+
+        if (!result.cardUserKey || !result.cardToken) {
+            this.logger.warn(`No card token on payment ${payment.id} — nothing to store`);
+            return;
+        }
+
+        try {
+            const saved = await this.iyzicoCardService.saveCard(cart.customerId, {
+                cardUserKey: result.cardUserKey,
+                cardToken: result.cardToken,
+                brand: result.cardBrand,
+                lastFourDigits: result.lastFourDigits,
+                bin: result.binNumber,
+            });
+
+            await this.ctPayment.updatePayment({
+                id: payment.id,
+                customFieldValues: { cardId: saved.id },
+            });
+
+            this.logger.log(`Card stored as PaymentMethod ${saved.id} for customer ${cart.customerId}`);
+        } catch (error) {
+            this.logger.error(`Could not save card for payment ${payment.id}: ${error}`);
+        }
     }
-
-    if (!result.cardUserKey || !result.cardToken) {
-        this.logger.warn(`No card token on payment ${payment.id} — nothing to store`);
-        return;
-    }
-
-    try {
-        const saved = await this.iyzicoCardService.saveCard(cart.customerId, {
-            cardUserKey: result.cardUserKey,
-            cardToken: result.cardToken,
-            brand: result.cardBrand,
-            lastFourDigits: result.lastFourDigits,
-            bin: result.binNumber,
-        });
-
-        await this.ctPayment.updatePayment({
-            id: payment.id,
-            customFieldValues: { cardId: saved.id },
-        });
-
-        this.logger.log(`Card stored as PaymentMethod ${saved.id} for customer ${cart.customerId}`);
-    } catch (error) {
-        this.logger.error(`Could not save card for payment ${payment.id}: ${error}`);
-    }
-}
 
     private async retrieveIyzicoPayment(
         payment: connectPaymentsSdk.Payment,
@@ -274,6 +274,18 @@ export class IyzicoPaymentService {
                 state,
                 amount: toMoney(payment.amountPlanned),
                 interactionId: token,
+            },
+            customFields: {
+                type: { key: 'iyzico-payment', typeId: 'type' },
+                fields: {
+                    cardType: result.cardType,
+                    cardAssociation: result.cardAssociation,
+                    cardFamily: result.cardFamily,
+                    binNumber: result.binNumber,
+                    lastFourDigits: result.lastFourDigits,
+                    installments: result.installment,
+                    conversationId: this.conversationIdFor(payment),
+                },
             },
             pspInteractions: [
                 connectPaymentsSdk.GenerateInterfaceInteractionCustomFieldsDraft({
