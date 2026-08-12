@@ -58,6 +58,7 @@ export interface IyzicoPaymentResult {
     errorCode?: string;
     errorMessage?: string;
     installment?: number;
+    conversationId?: string;
 }
 
 const CARD_BRANDS = new Set(['VISA', 'MASTER_CARD', 'AMERICAN_EXPRESS', 'TROY']);
@@ -74,7 +75,7 @@ function toCardBrand(cardAssociation?: string): string | undefined {
 function toFraudDecision(fraudStatus?: number): FraudDecision {
     if (fraudStatus === -1) return 'rejected';
     if (fraudStatus === 0)  return 'review';
-    return 'approved';   // 1 ou undefined
+    return 'approved';
 }
 
 function resolveOutcome(res: IyzicoRetrieveResponse, fraud: FraudDecision): PaymentOutcome {
@@ -88,7 +89,7 @@ function resolveOutcome(res: IyzicoRetrieveResponse, fraud: FraudDecision): Paym
     if (PENDING_STATUSES.has(status)) return 'Pending';
     if (status === 'SUCCESS') return 'Success';
 
-    return 'Failure';   // statut inconnu → refuser plutôt que passer
+    return 'Failure'; 
 }
 
 export function toIyzicoPaymentResult(res: IyzicoRetrieveResponse): IyzicoPaymentResult {
@@ -112,5 +113,6 @@ export function toIyzicoPaymentResult(res: IyzicoRetrieveResponse): IyzicoPaymen
         errorCode: res.errorCode,
         errorMessage: res.errorMessage,
         installment: res.installment,
+        conversationId: res.conversationId,
     };
 }

@@ -146,6 +146,12 @@ export class IyzicoPaymentService {
         await this.ctPayment.updatePayment({
             id: payment.id,
             pspReference: init.token,
+            customFields: {
+                type: { key: 'iyzico-payment', typeId: 'type' },
+                fields: {
+                    conversationId: this.conversationIdFor(payment),
+                },
+            },
             transaction: {
                 type: 'Charge',
                 state: 'Initial',
@@ -196,8 +202,6 @@ export class IyzicoPaymentService {
         await this.recordPaymentOnCommercetools(payment, result, token);
 
         if (result.outcome === 'Success') {
-            await this.recordCardMetadata(payment, result);
-
             if (result.cardUserKey && result.cardToken) {
                 await this.storeCard(payment, cart, result);
             }
@@ -249,9 +253,11 @@ export class IyzicoPaymentService {
         token: string,
         flow: FlowEndpoints,
     ): Promise<IyzicoRetrieveResponse> {
+        const conversationId = payment.custom?.fields?.conversationId as string
+        ?? this.conversationIdFor(payment); 
         const response = await this.iyzico.post<IyzicoRetrieveResponse>(flow.retrieve, {
             locale: LOCALE,
-            conversationId: this.conversationIdFor(payment),
+            conversationId: conversationId,
             [flow.retrieveTokenField]: token,
         });
 
@@ -284,7 +290,7 @@ export class IyzicoPaymentService {
                     binNumber: result.binNumber,
                     lastFourDigits: result.lastFourDigits,
                     installments: result.installment,
-                    conversationId: this.conversationIdFor(payment),
+                    conversationId: result.conversationId
                 },
             },
             pspInteractions: [
@@ -302,25 +308,6 @@ export class IyzicoPaymentService {
                     }),
                 }),
             ],
-        });
-    }
-
-    private async recordCardMetadata(
-        payment: connectPaymentsSdk.Payment,
-        result: IyzicoPaymentResult,
-    ): Promise<void> {
-        await this.ctPayment.updatePayment({
-            id: payment.id,
-            customFields: {
-                type: { key: 'iyzico-payment-card-info', typeId: 'type' },
-                fields: {
-                    cardType: result.cardType,
-                    cardAssociation: result.cardAssociation,
-                    cardFamily: result.cardFamily,
-                    binNumber: result.binNumber,
-                    lastFourDigits: result.lastFourDigits,
-                },
-            },
         });
     }
 
@@ -383,17 +370,8 @@ export class IyzicoPaymentService {
             this.logger.warn(`No returnUrl on callback for payment ${payment.id}`);
             throw new InternalServerErrorException('No return URL available');
         }
-
         const url = new URL(returnUrl);
         url.searchParams.set('paymentReference', payment.id);
-        url.searchParams.set('paymentStatus', result.outcome);
-
-        const errorCode = result.isFraud ? 'PAYMENT_DECLINED' : result.errorCode;
-        const errorMessage = result.isFraud ? 'Payment could not be completed' : result.errorMessage;
-
-        if (errorCode) url.searchParams.set('errorCode', errorCode);
-        if (errorMessage) url.searchParams.set('errorMessage', errorMessage);
-
         return url.toString();
     }
 }
