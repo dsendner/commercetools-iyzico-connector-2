@@ -1,18 +1,19 @@
-import { Inject, Injectable, InternalServerErrorException, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, InternalServerErrorException, Logger, NotFoundException, UnauthorizedException, UseGuards } from '@nestjs/common';
 import * as connectPaymentsSdk from '@commercetools/connect-payments-sdk';
 import { IyzicoInitializeResponse, toIyzicoInitializeRequest } from './converters/iyzico-create-session.converter';
 import { IyzicoClient } from './iyzico.client';
-import { getRequestContext } from '../commercetools/request-context';
 import { buildCallbackUrl } from './helper.converter';
 import { IyzicoPaymentResult, IyzicoRetrieveResponse, toIyzicoPaymentResult } from './converters/iyzico-retrieve-payment.converter';
 import { IyzicoWebhookPayload } from './converters/webhook.converter';
 import { IyzicoCardService } from './iyzico-card.service';
 import { CT_CART_SERVICE, CT_PAYMENT_SERVICE } from '../commercetools/tokens';
 import { AppConfigService } from '../config/config.service';
+import { getRequestContext } from '../commercetools/context/request-context';
 
 export interface CreateSessionRequest {
     cartId: string;
     clientIp: string;
+    cart: connectPaymentsSdk.Cart;
 }
 
 export interface CreateSessionResponse {
@@ -70,7 +71,7 @@ export class IyzicoPaymentService {
     ) { }
 
     async createSession(req: CreateSessionRequest): Promise<CreateSessionResponse> {
-        const cart = await this.ctCart.getCart({ id: req.cartId });
+        const cart = req.cart;
         const flow = this.flowFor(cart);
 
         const payment = await this.ctPayment.createPayment({

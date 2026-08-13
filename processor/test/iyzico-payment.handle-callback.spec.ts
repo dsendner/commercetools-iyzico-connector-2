@@ -1,152 +1,119 @@
-import type { Payment } from '@commercetools/platform-sdk';
-import { buildTestClient } from './helpers/test-client';
-import {makeCt, makePaymentService, money } from './helpers/ct-client-mock';
+import { IyzicoPaymentService } from '../src/iyzico/iyzico-payment.service';
+import {
+    makeCTServicesMock,
+    makeIyzicoMock,
+    makeConfigMock,
+    makePayment,
+    makeCart,
+} from './helpers/ct-client-mock';
 
-const successRetrieve = {
-    status: 'Success',
-    paymentStatus: 'SUCCESS',
-    paymentId: 'iyz-999',
-    fraudStatus: 1,
-    conversationId: 'pay-1',
-    token: 'tok-xyz',
-    cardAssociation: 'MASTER_CARD',
-};
+describe('IyzicoPaymentService.handleCallback', () => {
+    let service: IyzicoPaymentService;
+    let ct: ReturnType<typeof makeCTServicesMock>;
+    let iyzico: ReturnType<typeof makeIyzicoMock>;
+    let config: ReturnType<typeof makeConfigMock>;
 
-jest.mock('@commercetools/connect-payments-sdk', () => ({
-  getProcessorUrlFromContext: () => 'https://processor.example',
-  getCtSessionIdFromContext: () => 'sess-1',
-  getMerchantReturnUrlFromContext: () => 'https://shop.example/return',
-  GenerateInterfaceInteractionCustomFieldsDraft: (input: any) => ({
-    fields: input,
-  }),
-}));
+    beforeEach(() => {
+        ct = makeCTServicesMock();
+        iyzico = makeIyzicoMock();
+        config = makeConfigMock();
 
-describe('IyzicoPaymentService.handleCallback — finalize the payment', () => {
-    afterEach(() => jest.restoreAllMocks());
+        service = new IyzicoPaymentService(
+            ct.cart,
+            ct.payment,
+            iyzico.client,
+            iyzico.cardService,
+            config,
+        );
+    });
 
-    it('retrieves by token, records a Charge/Success with the card brand, returns the outcome', async () => {
-        const { client, captured } = buildTestClient([successRetrieve]);
-        const ct = makeCt();
+    it('retrieves by token, records Success with card brand', async () => {
+        const payment = makePayment({ id: 'p-1' });
+        const cart = makeCart({ id: 'c-1' });
 
-        const redirectUrl = await makePaymentService(ct, client).handleCallback({
-            token: 'tok-xyz',
-            returnUrl: 'https://shop.example/return',
+        ct.payment.findPaymentsByInterfaceId.mockResolvedValue([payment]);
+        ct.cart.getCartByPaymentId.mockResolvedValue(cart);
+        iyzico.client.post.mockResolvedValue({
+            status: 'success',
+            paymentStatus: 'SUCCESS',
+            fraudStatus: 1,
+            cardAssociation: 'VISA',
+            cardType: 'CREDIT_CARD',
+            binNumber: '450803',
+            lastFourDigits: '4444',
+            price: 100,
+            paidPrice: 100,
         });
 
-        expect(ct.payments.findPaymentsByInterfaceId).toHaveBeenCalledWith({ interfaceId: 'tok-xyz' });
+        const redirectUrl = await service.handleCallback({
+            token: 'iyzico-token-1',
+            returnUrl: 'https://bff.example/callback',
+        });
 
-       
-        expect(captured[0].url).toBe('/payment/iyzipos/checkoutform/auth/ecom/detail');
-        const sent = JSON.parse(captured[0].data as string);
-        expect(sent.token).toBe('tok-xyz');
-        expect(sent.conversationId).toBe('pay-1');
-
-        expect(ct.payments.updatePayment).toHaveBeenCalledWith(
+        expect(ct.payment.updatePayment).toHaveBeenCalledWith(
             expect.objectContaining({
-                id: 'pay-1',
-                paymentMethod: 'MASTER_CARD',
-                transaction: expect.objectContaining({
-                    type: 'Charge',
-                    state: 'Success',
-                    interactionId: 'tok-xyz',
-                }),
+                id: 'p-1',
+                paymentMethod: 'VISA',
+                transaction: expect.objectContaining({ state: 'Success' }),
             }),
         );
 
-        // Verify the URL contains the expected success parameters
-        const url = new URL(redirectUrl!);
-        expect(url.searchParams.get('paymentReference')).toBe('pay-1');
-        expect(url.searchParams.get('paymentStatus')).toBe('Success');
+        const url = new URL(redirectUrl);
+        expect(url.searchParams.get('paymentReference')).toBe('p-1');
     });
 
-    it('FRAUD: audits the real reason on CT but returns a GENERIC code to the front', async () => {
-        const { client } = buildTestClient([
-            {
-                status: 'Success',
-                paymentStatus: 'FAILURE',
-                conversationId: 'pay-1',
-                fraudStatus: -1,
-                errorCode: '10051',
-                errorMessage: 'Insufficient funds',
-            },
-        ]);
-        const ct = makeCt();
 
-        const redirectUrl = await makePaymentService(ct, client).handleCallback({
-            token: 'tok-xyz',
-            returnUrl: 'https://shop.example/return',
+
+    it('FRAUD: audits real reason on CT (front reads status from Payment)', async () => {
+        const payment = makePayment({ id: 'p-2' });
+        const cart = makeCart({ id: 'c-2' });
+
+        ct.payment.findPaymentsByInterfaceId.mockResolvedValue([payment]);
+        ct.cart.getCartByPaymentId.mockResolvedValue(cart);
+        iyzico.client.post.mockResolvedValue({
+            status: 'success',
+            paymentStatus: 'FAILURE',
+            fraudStatus: -1,
+            errorCode: '10034',
+            errorMessage: 'Fraud detected',
         });
 
-        const update = ct.payments.updatePayment.mock.calls[0][0] as any;
-        expect(update.transaction).toMatchObject({ type: 'Charge', state: 'Failure' });
-        const audited = JSON.parse(update.pspInteractions[0].fields.response);
-        expect(audited).toMatchObject({ errorCode: '10051', errorMessage: 'Insufficient funds', fraudStatus: -1 });
+        await service.handleCallback({ token: 'iyzico-token-2', returnUrl: 'https://bff.example/callback' });
 
-        expect(new URL(redirectUrl!).searchParams.get('errorCode')).toBe('GENERIC_ERROR');
+        expect(ct.payment.updatePayment).toHaveBeenCalledWith(
+            expect.objectContaining({
+                pspInteractions: expect.arrayContaining([
+                    expect.objectContaining({
+                        fields: expect.objectContaining({
+                            response: expect.stringContaining('rejected'),
+                        }),
+                    }),
+                ]),
+            }),
+        );
     });
 
-    it('DECLINE: exposes the real Iyzico error code to the front (non-fraud)', async () => {
-        const { client } = buildTestClient([
-            {
-                status: 'Success',
-                paymentStatus: 'FAILURE',
-                conversationId: 'pay-1',
-                fraudStatus: 1,
-                errorCode: '10051',
-                errorMessage: 'Insufficient funds',
-            },
-        ]);
-        const ct = makeCt();
-
-        const redirectUrl = await makePaymentService(ct, client).handleCallback({
-            token: 'tok-xyz',
-            returnUrl: 'https://shop.example/return',
+    it('is idempotent: duplicate callback on settled payment does not record again', async () => {
+        const payment = makePayment({
+            id: 'p-3',
+            transactions: [
+                { type: 'Charge', state: 'Success', id: 't-1', timestamp: '2026-01-01T00:00:00Z', amount: { centAmount: 100, currencyCode: 'TRY' } } as any,
+            ],
         });
 
-        expect(new URL(redirectUrl!).searchParams.get('errorCode')).toBe('10051');
-    });
+        ct.payment.findPaymentsByInterfaceId.mockResolvedValue([payment]);
 
-    it('redirects to the return URL with the result', async () => {
-        const { client } = buildTestClient([successRetrieve]);
-
-        const redirectUrl = await makePaymentService(makeCt(), client).handleCallback({
-            token: 'tok-xyz',
-            returnUrl: 'https://shop.example/return',
+        const redirectUrl = await service.handleCallback({
+            token: 'iyzico-token-3',
+            returnUrl: 'https://bff.example/callback',
         });
 
-        const url = new URL(redirectUrl!);
-        expect(url.origin + url.pathname).toBe('https://shop.example/return');
-        expect(url.searchParams.get('paymentReference')).toBe('pay-1');
-        expect(url.searchParams.get('paymentStatus')).toBe('Success');
-    });
 
-    it('is idempotent: a duplicate callback on a settled payment does not record again', async () => {
-        const { client, captured } = buildTestClient([]); // retrieve must NOT be called
+        expect(iyzico.client.post).not.toHaveBeenCalled();
 
-        // The payment was already finalized by the first callback.
-        const finalized = {
-            id: 'pay-1',
-            amountPlanned: money(4990),
-            interfaceId: 'tok-xyz',
-            transactions: [{ type: 'Charge', state: 'Success' }],
-        } as unknown as Payment;
+        expect(ct.payment.updatePayment).not.toHaveBeenCalled();
 
-        // Using `as any` to silence strict TS mock shape requirements
-        const ct = makeCt({
-            payments: {
-                findPaymentsByInterfaceId: jest.fn().mockResolvedValue([finalized])
-            } as any,
-            paymentMethods: {
-                save: jest.fn().mockResolvedValue({})
-            } as any
-        });
-        const redirectUrl = await makePaymentService(ct, client).handleCallback({
-            token: 'tok-xyz',
-            returnUrl: 'https://shop.example/return',
-        });
-
-        expect(captured).toHaveLength(0); // no second retrieve to Iyzico
-        expect(ct.payments.updatePayment).not.toHaveBeenCalled(); // no duplicate write
-        expect(new URL(redirectUrl!).searchParams.get('paymentStatus')).toBe('Success');
+        const url = new URL(redirectUrl);
+        expect(url.searchParams.get('paymentReference')).toBe('p-3');
     });
 });

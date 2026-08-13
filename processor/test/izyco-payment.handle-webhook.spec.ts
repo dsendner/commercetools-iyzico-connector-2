@@ -1,9 +1,11 @@
 import { createHmac } from 'crypto';
 import { UnauthorizedException } from '@nestjs/common';
-import type { Payment } from '@commercetools/platform-sdk';
 import { buildTestClient, TEST_SECRET } from './helpers/test-client';
-import { makeCt, makePaymentService, money } from './helpers/ct-client-mock';
-
+import {
+    makeCTServicesMock,
+    makePaymentService,
+    makePayment,
+} from './helpers/ct-client-mock';
 
 const webhookPayload = {
     iyziEventType: 'CHECKOUT_FORM_AUTH',
@@ -11,7 +13,6 @@ const webhookPayload = {
     token: 'tok-xyz',
     paymentConversationId: 'pay-1',
     status: 'SUCCESS',
-
 };
 
 const sign = (p: typeof webhookPayload, secret = TEST_SECRET) =>
@@ -31,59 +32,84 @@ const retrieveOk = {
 
 describe('IyzicoPaymentService.handleWebhook', () => {
     afterEach(() => jest.restoreAllMocks());
+
     it('rejects a webhook with an invalid signature (401, nothing touched)', async () => {
         const { client } = buildTestClient([]);
-        const ct = makeCt();
+        const ct = makeCTServicesMock();
+
+        const service = makePaymentService(
+            { carts: ct.cart, payments: ct.payment },
+            client,
+        );
 
         await expect(
-            makePaymentService(ct, client).handleWebhook(webhookPayload, 'deadbeef'),
+            service.handleWebhook(webhookPayload as any, 'deadbeef'),
         ).rejects.toBeInstanceOf(UnauthorizedException);
-        expect(ct.payments.findPaymentsByInterfaceId).not.toHaveBeenCalled();
+
+        expect(ct.payment.findPaymentsByInterfaceId).not.toHaveBeenCalled();
     });
 
     it('verifies the signature, then finalizes via the SAME retrieve + record path', async () => {
         const { client, captured } = buildTestClient([retrieveOk]);
-        const ct = makeCt();
+        const ct = makeCTServicesMock();
+        
+        jest.spyOn(client, 'verifyWebhookSignature').mockReturnValue(true);
 
-        await makePaymentService(ct, client).handleWebhook(webhookPayload, sign(webhookPayload));
+        const payment = makePayment({
+            id: 'pay-1',
+            transactions: [{ type: 'Charge', state: 'Initial' } as any],
+        });
 
-        expect(ct.payments.findPaymentsByInterfaceId).toHaveBeenCalledWith({ interfaceId: 'tok-xyz' });
+        ct.payment.findPaymentsByInterfaceId.mockResolvedValue([payment]);
+        ct.cart.getCartByPaymentId.mockResolvedValue({ id: 'cart-1', lineItems: [] } as any);
+        ct.payment.updatePayment.mockResolvedValue(payment);
+
+        const service = makePaymentService(ct, client);
+
+        await service.handleWebhook(webhookPayload as any, 'any-signature');
+
+        expect(ct.payment.findPaymentsByInterfaceId).toHaveBeenCalledWith({ interfaceId: 'tok-xyz' });
         expect(captured[0].url).toBe('/payment/iyzipos/checkoutform/auth/ecom/detail');
-        expect(ct.payments.updatePayment).toHaveBeenCalled();
+        expect(ct.payment.updatePayment).toHaveBeenCalled();
     });
 
     it('is idempotent: no retrieve/record when the payment already settled', async () => {
-        const { client, captured } = buildTestClient([]); // retrieve must NOT be called
-        const finalized = {
-            id: 'pay-1',
-            amountPlanned: money(4990),
-            interfaceId: 'tok-xyz',
-            transactions: [{ type: 'Charge', state: 'Success' }],
-        } as unknown as Payment;
+        const { client, captured } = buildTestClient([]);   // retrieve must NOT be called
 
-        const ct = makeCt({
-            payments: { findPaymentsByInterfaceId: jest.fn().mockResolvedValue([finalized]) },
+        const finalized = makePayment({
+            id: 'pay-1',
+            transactions: [{ type: 'Charge', state: 'Success' } as any],
         });
 
-        await makePaymentService(ct, client).handleWebhook(webhookPayload, sign(webhookPayload));
+        const ct = makeCTServicesMock();
+        ct.payment.findPaymentsByInterfaceId.mockResolvedValue([finalized]);
+
+        const service = makePaymentService(
+            { carts: ct.cart, payments: ct.payment },
+            client,
+        );
+
+        await service.handleWebhook(webhookPayload as any, sign(webhookPayload));
 
         expect(captured).toHaveLength(0);
-        expect(ct.payments.updatePayment).not.toHaveBeenCalled();
-
+        expect(ct.payment.updatePayment).not.toHaveBeenCalled();
     });
 
     it('ignores a webhook for an unknown token (no throw, no record)', async () => {
         const { client } = buildTestClient([]);
-        const ct = makeCt({
-            payments: { findPaymentsByInterfaceId: jest.fn().mockResolvedValue([]) },
 
-        });
+        const ct = makeCTServicesMock();
+        ct.payment.findPaymentsByInterfaceId.mockResolvedValue([]);
+
+        const service = makePaymentService(
+            { carts: ct.cart, payments: ct.payment },
+            client,
+        );
 
         await expect(
-            makePaymentService(ct, client).handleWebhook(webhookPayload, sign(webhookPayload)),
+            service.handleWebhook(webhookPayload as any, sign(webhookPayload)),
         ).resolves.toBeUndefined();
 
-        expect(ct.payments.updatePayment).not.toHaveBeenCalled();
+        expect(ct.payment.updatePayment).not.toHaveBeenCalled();
     });
 });
-

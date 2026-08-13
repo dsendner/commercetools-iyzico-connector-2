@@ -1,15 +1,20 @@
-import type { Config } from 'jest';
-
-const config: Config = {
-  moduleFileExtensions: ['js', 'json', 'ts'],
-  rootDir: '.',
-  testMatch: ['<rootDir>/test/**/*.spec.ts', '<rootDir>/src/**/*.spec.ts'],
-  transform: {
-    '^.+\\.(t|j)s$': 'ts-jest',
-  },
-  collectCoverageFrom: ['src/**/*.(t|j)s'],
-  coverageDirectory: 'coverage',
-  testEnvironment: 'node',
+module.exports = {
+    preset: 'ts-jest',
+    testEnvironment: 'node',
+    roots: ['<rootDir>/src', '<rootDir>/test'],
+    testRegex: '.*\\.spec\\.ts$',
+    transform: {
+        '^.+\\.(t|j)s$': ['ts-jest', {
+            tsconfig: 'tsconfig.json',
+        }],
+    },
+    transformIgnorePatterns: [
+        'node_modules/(?!(jose|jwks-rsa|@commercetools/connect-payments-sdk)/)',
+    ],
+    moduleFileExtensions: ['ts', 'js', 'json'],
+    collectCoverageFrom: [
+        'src/**/*.ts',
+        '!src/**/*.dto.ts',
+        '!src/main.ts',
+    ],
 };
-
-export default config;

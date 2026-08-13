@@ -1,87 +1,149 @@
-import type { Cart, Payment, PaymentMethod } from '@commercetools/platform-sdk';
-import * as connectSdk from '@commercetools/connect-payments-sdk'; // 1. Import the SDK namespace
-import { IyzicoPaymentService } from '../../src/iyzico/iyzico-payment.service';
+import * as connectPaymentsSdk from '@commercetools/connect-payments-sdk';
+import { AppConfigService } from '../../src/config/config.service';
 import { IyzicoClient } from '../../src/iyzico/iyzico.client';
 import { IyzicoCardService } from '../../src/iyzico/iyzico-card.service';
+import { IyzicoPaymentService } from '../../src/iyzico/iyzico-payment.service';
 
-export const money = (centAmount: number) => ({
-    type: 'centPrecision' as const,
-    centAmount,
-    currencyCode: 'TRY',
-    fractionDigits: 2,
-});
-
-export function makeCart(): Cart {
-    return {
-        id: 'cart-1',
-        locale: 'tr-TR',
-        customerId: 'cust-1',
-        customerEmail: 'john@example.com',
-        totalPrice: money(4990),
-        billingAddress: { firstName: 'John', lastName: 'Doe', city: 'Istanbul', country: 'TR', streetName: 'Nidakule' },
-        shippingAddress: { firstName: 'John', lastName: 'Doe', city: 'Istanbul', country: 'TR' },
-        lineItems: [{ id: 'li-1', name: { tr: 'Tişört' }, quantity: 1, totalPrice: money(4990) }],
-    } as unknown as Cart;
+export interface MockedCTServices {
+    cart: jest.Mocked<connectPaymentsSdk.CommercetoolsCartService>;
+    payment: jest.Mocked<connectPaymentsSdk.CommercetoolsPaymentService>;
+    paymentMethods: jest.Mocked<connectPaymentsSdk.CommercetoolsPaymentMethodService>;
 }
 
-export const payment = { id: 'pay-1', amountPlanned: money(4990), interfaceId: 'tok-xyz' } as Payment;
-export const sessionRequest = { cartId: 'cart-1', clientIp: '1.2.3.4' };
-export const paymentMethods = {};
-
-export function makeCt(
-  overrides: { carts?: object; payments?: object; paymentMethods?: object } = {},
-) {
-  const mockProcessorUrl = 'https://processor.example';
-  const mockSessionId = 'sess-1';
-  const mockReturnUrl = 'https://shop.example/return';
-
-  return {
-    carts: {
-      getCart: jest.fn().mockResolvedValue(makeCart()),
-      getCartByPaymentId: jest.fn().mockResolvedValue(makeCart()),
-      addPayment: jest.fn().mockResolvedValue(makeCart()),
-      ...overrides.carts,
-    },
-    payments: {
-      createPayment: jest.fn().mockResolvedValue(payment),
-      updatePayment: jest.fn().mockResolvedValue(payment),
-      findPaymentsByInterfaceId: jest.fn().mockResolvedValue([payment]),
-      getPayment: jest.fn().mockResolvedValue(payment),
-      ...overrides.payments,
-    },
-    paymentMethods: {
-      find: jest.fn(),
-      save: jest.fn(),
-      delete: jest.fn(),
-      get: jest.fn(),
-      ...overrides.paymentMethods,
-    },
-    // Retain these for backward compatibility with other assertions if needed
-    getProcessorUrl: jest.fn().mockReturnValue(mockProcessorUrl),
-    getSessionId: jest.fn().mockReturnValue(mockSessionId),
-    getMerchantReturnUrl: jest.fn().mockReturnValue(mockReturnUrl),
-    interactionDraft: jest.fn((input: unknown) => ({ fields: input })),
-    cardDetailsDraft: jest.fn((input: unknown) => ({ fields: input })),
-  };
+export interface MockedIyzico {
+    client: jest.Mocked<IyzicoClient>;
+    cardService: jest.Mocked<IyzicoCardService>;
 }
 
-export const createMockPaymentMethodService = (overrides = {}) => {
+export function makeCTServicesMock(): MockedCTServices {
     return {
-        get: jest.fn().mockResolvedValue({
-            id: 'pm-1',
-            method: 'MASTER_CARD',
-            token: { value: 'user-key-1::card-tok-1' }
-        }),
-        findPaymentsByInterfaceId: jest.fn().mockResolvedValue([]),
-        updatePayment: jest.fn().mockResolvedValue({ id: 'pay-1', version: 2 }),
+        cart: {
+            getCart: jest.fn(),
+            getCartByPaymentId: jest.fn(),
+            addPayment: jest.fn(),
+        } as any,
+        payment: {
+            createPayment: jest.fn(),
+            updatePayment: jest.fn(),
+            getPayment: jest.fn(),
+            findPaymentsByInterfaceId: jest.fn(),
+        } as any,
+        paymentMethods: {
+            save: jest.fn(),
+            find: jest.fn().mockResolvedValue({ results: [] }),
+            get: jest.fn(),
+        } as any,
+    };
+}
+
+export function makeIyzicoMock(): MockedIyzico {
+    return {
+        client: {
+            post: jest.fn(),
+            verifyWebhookSignature: jest.fn().mockReturnValue(true),
+        } as any,
+        cardService: {
+            saveCard: jest.fn(),
+            getUserKey: jest.fn(),
+        } as any,
+    };
+}
+
+export function makeConfigMock(overrides: Record<string, string> = {}): jest.Mocked<AppConfigService> {
+    const values: Record<string, string> = {
+        SUBSCRIPTION_DETECTION_FIELD: 'frequencyCode',
+        CTP_PROJECT_KEY: 'test-project',
+        PROCESSOR_PUBLIC_URL: 'http://localhost:3000',
+        DEFAULT_RETURN_URL: 'http://localhost:3000/dev/payment-result',
+        NODE_ENV: 'test',
         ...overrides,
     };
+
+    return {
+        get: jest.fn().mockImplementation((key: string) => values[key]),
+    } as any;
+}
+
+/**
+ * Factory helper — builds a Payment matching CT shape for test fixtures.
+ */
+export function makePayment(overrides: Partial<connectPaymentsSdk.Payment> = {}): connectPaymentsSdk.Payment {
+    return {
+        id: 'payment-test-id',
+        version: 1,
+        createdAt: '2026-01-01T00:00:00Z',
+        lastModifiedAt: '2026-01-01T00:00:00Z',
+        amountPlanned: { centAmount: 10000, currencyCode: 'TRY' },
+        paymentMethodInfo: { paymentInterface: 'iyzico' },
+        transactions: [],
+        interfaceInteractions: [],
+        ...overrides,
+    } as any;
+}
+
+/**
+ * Factory helper — builds a Cart matching CT shape for test fixtures.
+ */
+export function makeCart(overrides: Partial<connectPaymentsSdk.Cart> = {}): connectPaymentsSdk.Cart {
+    return {
+        id: 'cart-test-id',
+        version: 1,
+        createdAt: '2026-01-01T00:00:00Z',
+        lastModifiedAt: '2026-01-01T00:00:00Z',
+        customerId: 'customer-test-id',
+        cartState: 'Active',
+        totalPrice: { centAmount: 10000, currencyCode: 'TRY', type: 'centPrecision', fractionDigits: 2 },
+        lineItems: [],
+        customLineItems: [],
+        taxMode: 'Platform',
+        taxRoundingMode: 'HalfEven',
+        taxCalculationMode: 'LineItemLevel',
+        inventoryMode: 'None',
+        shippingMode: 'Single',
+        origin: 'Customer',
+        refusedGifts: [],
+        itemShippingAddresses: [],
+        ...overrides,
+    } as any;
+}
+
+export function makeIyzicoCardServiceMock() {
+    return {
+        saveCard: jest.fn().mockResolvedValue({ id: 'pm-1' }),   // ← ajoute mockResolvedValue
+        getUserKey: jest.fn().mockResolvedValue('user-key-1'),   // ← retourne une clé pour le dernier test
+    };
+}
+
+export function makePaymentService(ct: any, client: any): IyzicoPaymentService {
+    return new IyzicoPaymentService(
+        ct.cart,
+        ct.payment,
+        client,
+        makeIyzicoCardServiceMock() as any,
+        makeConfigMock() as any,
+    );
+}
+
+export const sessionRequest = {
+    cartId: 'cart-1',
+    clientIp: '1.2.3.4',
+    cart: {
+        id: 'cart-1',
+        version: 1,
+        cartState: 'Active',
+        customerId: 'customer-test-id',
+        totalPrice: { centAmount: 4990, currencyCode: 'TRY', type: 'centPrecision', fractionDigits: 2 },
+        lineItems: [
+            {
+                id: 'li-1',
+                productId: 'prod-1',
+                name: { en: 'Test product' },
+                quantity: 1,
+                price: { value: { centAmount: 4990, currencyCode: 'TRY' } },
+                totalPrice: { centAmount: 4990, currencyCode: 'TRY', type: 'centPrecision', fractionDigits: 2 },
+                variant: { id: 1, sku: 'sku-1' },
+                custom: undefined,
+            },
+        ],
+    } as any,
 };
-
-export const makeCardService = (ct: ReturnType<typeof makeCt>, client: IyzicoClient) =>
-  new IyzicoCardService(client, ct.paymentMethods as never);
-
-export const makePaymentService = (ct: ReturnType<typeof makeCt>, client: IyzicoClient) =>
-  new IyzicoPaymentService(ct.carts as never, ct.payments as never, client, makeCardService(ct, client));
-
-

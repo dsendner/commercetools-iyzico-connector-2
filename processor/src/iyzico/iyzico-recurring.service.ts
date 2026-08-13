@@ -1,7 +1,7 @@
-import { BadRequestException, Inject, Injectable, Logger } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, Logger, UseGuards } from "@nestjs/common";
 import * as connectPaymentsSdk from '@commercetools/connect-payments-sdk';
 import { IyzicoClient } from "./iyzico.client";
-import { TransactionDraft, TransactionResponse } from "../operations/transaction.dto";
+import type { TransactionDraft, TransactionResponse } from "../operations/transaction.dto";
 import { CT_CART_SERVICE, CT_PAYMENT_SERVICE, CT_PAYMENT_METHOD_SERVICE } from "../commercetools/tokens";
 import { unpackCardToken } from "./converters/iyzico-card-storage.converter";
 import { IyzicoNon3dsResponse, toIyzicoNon3dsRequest } from "./converters/iyzico-non-3ds.converter";
@@ -24,8 +24,7 @@ export class IyzicoRecurringService {
         @Inject(CT_PAYMENT_METHOD_SERVICE) private readonly ctPaymentMethods: connectPaymentsSdk.CommercetoolsPaymentMethodService,
     ) { }
 
-    async handleTransaction(draft: TransactionDraft): Promise<TransactionResponse> {
-        const cart = await this.ctCart.getCart({ id: draft.cart.id });
+    async handleTransaction(draft: TransactionDraft, cart: connectPaymentsSdk.Cart): Promise<TransactionResponse> {
         const amount = draft.transactionItems[0].amount;
 
         const paymentMethod = await this.resolvePaymentMethod(cart);

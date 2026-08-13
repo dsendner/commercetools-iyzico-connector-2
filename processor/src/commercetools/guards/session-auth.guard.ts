@@ -1,7 +1,8 @@
 import { SessionHeaderAuthenticationHook } from "@commercetools/connect-payments-sdk";
 import { CanActivate, ExecutionContext, Inject, Injectable, UnauthorizedException } from "@nestjs/common";
-import { getRequestContext } from "../commercetools/request-context";
-import { CT_SESSION_AUTH_HOOK } from "./tokens";
+import { getRequestContext } from "../context/request-context";
+import { CT_SESSION_AUTH_HOOK } from "../tokens";
+import { log } from "console";
 
 @Injectable()
 export class SessionAuthGuard implements CanActivate {
@@ -22,6 +23,7 @@ export class SessionAuthGuard implements CanActivate {
     }
 
     request.cartId = cartId;
+    console.log(`Authenticated session for cart ${cartId}`);
     return true;
   }
 

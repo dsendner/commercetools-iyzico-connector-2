@@ -1,6 +1,6 @@
 import { JWTAuthenticationHook } from '@commercetools/connect-payments-sdk';
 import { CanActivate, ExecutionContext, Inject, Injectable, UnauthorizedException } from '@nestjs/common';
-import { CT_JWT_AUTH_HOOK } from './tokens';
+import { CT_JWT_AUTH_HOOK } from '../tokens';
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {

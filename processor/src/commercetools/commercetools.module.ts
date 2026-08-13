@@ -1,16 +1,23 @@
-import { CommercetoolsCartService, CommercetoolsPaymentMethodService, CommercetoolsPaymentService, JWTAuthenticationHook, SessionHeaderAuthenticationHook, setupPaymentSDK } from '@commercetools/connect-payments-sdk';
+import { AuthorityAuthorizationHook, CommercetoolsCartService, CommercetoolsPaymentMethodService, CommercetoolsPaymentService, JWTAuthenticationHook, Oauth2AuthenticationHook, SessionHeaderAuthenticationHook, setupPaymentSDK } from '@commercetools/connect-payments-sdk';
 import { Global, Module } from '@nestjs/common';
-import { getRequestContext, updateRequestContext } from '../commercetools/request-context';
+import { getRequestContext, updateRequestContext } from './context/request-context';
 import { AppConfigService } from '../config/config.service';
-import { SessionAuthGuard } from './session-auth.guard';
-import { CT_CART_SERVICE, CT_JWT_AUTH_HOOK, CT_PAYMENT_METHOD_SERVICE, CT_PAYMENT_SERVICE, CT_SESSION_AUTH_HOOK, PAYMENT_SDK } from './tokens';
-import { JwtAuthGuard } from './jwt-auth.guard';
+import { SessionAuthGuard } from './guards/session-auth.guard';
+import { CT_AUTHORITY_AUTH_HOOK, CT_CART_SERVICE, CT_JWT_AUTH_HOOK, CT_OAUTH2_AUTH_HOOK, CT_PAYMENT_METHOD_SERVICE, CT_PAYMENT_SERVICE, CT_SESSION_AUTH_HOOK, PAYMENT_SDK } from './tokens';
+import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { OAuth2AuthGuard } from './guards/oauth2-auth.guard';
+import { AuthorityAuthGuard } from './guards/authority-auth.guard';
+import { CartActiveGuard } from './guards/cart-active.guard';
 
 type PaymentSdk = ReturnType<typeof setupPaymentSDK>;
 
 @Global()
 @Module({
     providers: [
+        CartActiveGuard,
+        JwtAuthGuard,
+        OAuth2AuthGuard,
+        AuthorityAuthGuard,
         SessionAuthGuard,
         {
             provide: PAYMENT_SDK,
@@ -66,6 +73,16 @@ type PaymentSdk = ReturnType<typeof setupPaymentSDK>;
             inject: [PAYMENT_SDK],
             useFactory: (sdk: PaymentSdk): JWTAuthenticationHook => sdk.jwtAuthHookFn,
         },
+        {
+            provide: CT_OAUTH2_AUTH_HOOK,
+            inject: [PAYMENT_SDK],
+            useFactory: (sdk: PaymentSdk): Oauth2AuthenticationHook => sdk.oauth2AuthHookFn,
+        },
+        {
+            provide: CT_AUTHORITY_AUTH_HOOK,
+            inject: [PAYMENT_SDK],
+            useFactory: (sdk: PaymentSdk): AuthorityAuthorizationHook => sdk.authorityAuthorizationHookFn,
+        },
     ],
     exports: [
         PAYMENT_SDK,
@@ -73,7 +90,9 @@ type PaymentSdk = ReturnType<typeof setupPaymentSDK>;
         CT_PAYMENT_SERVICE,
         CT_PAYMENT_METHOD_SERVICE,
         CT_SESSION_AUTH_HOOK,
-        CT_JWT_AUTH_HOOK
+        CT_JWT_AUTH_HOOK,
+        CT_OAUTH2_AUTH_HOOK,
+        CT_AUTHORITY_AUTH_HOOK
     ],
 })
 export class CommercetoolsModule { }

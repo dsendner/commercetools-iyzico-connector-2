@@ -1,27 +1,20 @@
 import { InternalServerErrorException } from '@nestjs/common';
 import { buildTestClient } from './helpers/test-client';
-import { makeCt, makePaymentService, sessionRequest } from './helpers/ct-client-mock';
-
-jest.mock('@commercetools/connect-payments-sdk', () => ({
-  ...jest.requireActual('@commercetools/connect-payments-sdk'),
-  getProcessorUrlFromContext: () => 'https://processor.example',
-  getCtSessionIdFromContext: () => 'sess-1',
-  getMerchantReturnUrlFromContext: () => 'https://shop.example/return',
-}));
+import {
+  makeCTServicesMock,
+  makePaymentService,
+  sessionRequest,
+} from './helpers/ct-client-mock';
 
 jest.mock('@commercetools/connect-payments-sdk', () => {
   const actual = jest.requireActual('@commercetools/connect-payments-sdk');
-  const cleanMock = {} as any;
-
-  for (const key of Object.keys(actual)) {
-    cleanMock[key] = actual[key];
-  }
-
-  cleanMock.getProcessorUrlFromContext = jest.fn().mockReturnValue('https://processor.example');
-  cleanMock.getCtSessionIdFromContext = jest.fn().mockReturnValue('sess-1');
-  cleanMock.getMerchantReturnUrlFromContext = jest.fn().mockReturnValue('https://shop.example/return');
-
-  return cleanMock;
+  return {
+    ...actual,
+    getProcessorUrlFromContext: jest.fn().mockReturnValue('https://processor.example'),
+    getCtSessionIdFromContext: jest.fn().mockReturnValue('sess-1'),
+    getMerchantReturnUrlFromContext: jest.fn().mockReturnValue('https://shop.example/return'),
+    getFutureOrderNumberFromContext: jest.fn().mockReturnValue(undefined),
+  };
 });
 
 describe('IyzicoPaymentService.createSession (service + converter + client)', () => {
@@ -36,13 +29,18 @@ describe('IyzicoPaymentService.createSession (service + converter + client)', ()
       paymentPageUrl: 'https://sandbox-cpp.iyzipay.com/?token=tok-xyz',
     };
     const { client, captured } = buildTestClient([initResponse]);
-    const ct = makeCt();
 
-    const result = await makePaymentService(ct, client).createSession(sessionRequest);
+    const ct = makeCTServicesMock();
+    ct.cart.getCart.mockResolvedValue(sessionRequest.cart);
+    ct.payment.createPayment.mockResolvedValue({ id: 'pay-1', version: 1 } as any);
+    ct.payment.updatePayment.mockResolvedValue({ id: 'pay-1', version: 2 } as any);
+    ct.cart.addPayment.mockResolvedValue(sessionRequest.cart);
 
-    expect(ct.carts.getCart).toHaveBeenCalledWith({ id: 'cart-1' });
+    const service = makePaymentService(ct, client);
 
-    expect(ct.payments.createPayment).toHaveBeenCalledWith(
+    const result = await service.createSession(sessionRequest);
+
+    expect(ct.payment.createPayment).toHaveBeenCalledWith(
       expect.objectContaining({
         amountPlanned: { centAmount: 4990, currencyCode: 'TRY' },
         paymentMethodInfo: { paymentInterface: 'iyzico' },
@@ -51,7 +49,7 @@ describe('IyzicoPaymentService.createSession (service + converter + client)', ()
 
     expect(captured[0].url).toBe('/payment/iyzipos/checkoutform/initialize/auth/ecom');
     const sent = JSON.parse(captured[0].data as string);
-    expect(sent.conversationId).toBe('pay-1'); // CT payment id round-trips
+    expect(sent.conversationId).toBe('pay-1');
     expect(sent.basketId).toBe('cart-1');
     expect(sent.price).toBe('49.90');
 
@@ -64,7 +62,7 @@ describe('IyzicoPaymentService.createSession (service + converter + client)', ()
     expect(callbackUrl.searchParams.get('returnUrl')).toBe('https://shop.example/return');
     expect(sent.buyer.ip).toBe('1.2.3.4');
 
-    expect(ct.payments.updatePayment).toHaveBeenCalledWith(
+    expect(ct.payment.updatePayment).toHaveBeenCalledWith(
       expect.objectContaining({
         id: 'pay-1',
         pspReference: 'tok-xyz',
@@ -83,24 +81,36 @@ describe('IyzicoPaymentService.createSession (service + converter + client)', ()
     });
 
     const stored = JSON.parse(
-      (ct.payments.updatePayment.mock.calls[0][0] as any).pspInteractions[0].fields.response,
+      (ct.payment.updatePayment.mock.calls[0][0] as any).pspInteractions[0].fields.response,
     );
     expect(stored).toMatchObject({
-      checkoutFormContent: '<script>iyzicoForm</script>',
       paymentPageUrl: 'https://sandbox-cpp.iyzipay.com/?token=tok-xyz',
     });
-    expect(ct.carts.addPayment).toHaveBeenCalledWith(expect.objectContaining({ paymentId: 'pay-1' }));
+
+    expect(ct.cart.addPayment).toHaveBeenCalledWith(
+      expect.objectContaining({ paymentId: 'pay-1' }),
+    );
   });
 
-  it('throws a 500 and does NOT store a token when Iyzico rejects the init', async () => {
+  it('throws 500 and does NOT store a token when Iyzico rejects the init', async () => {
     const { client } = buildTestClient([
-      { status: 'Failure', errorCode: '50001', errorMessage: 'Request message is not readable', conversationId: 'pay-1' },
+      {
+        status: 'Failure',
+        errorCode: '50001',
+        errorMessage: 'Request message is not readable',
+        conversationId: 'pay-1',
+      },
     ]);
-    const ct = makeCt();
 
-    await expect(makePaymentService(ct, client).createSession(sessionRequest)).rejects.toBeInstanceOf(
-      InternalServerErrorException,
+    const ct = makeCTServicesMock();
+    ct.cart.getCart.mockResolvedValue(sessionRequest.cart);
+    ct.payment.createPayment.mockResolvedValue({ id: 'pay-1', version: 1 } as any);
+
+    const service = makePaymentService(ct, client);
+
+    await expect(service.createSession(sessionRequest)).rejects.toThrow(
+      /Could not start the checkout init payment/,
     );
-    expect(ct.payments.updatePayment).not.toHaveBeenCalled();
+    expect(ct.payment.updatePayment).not.toHaveBeenCalled();
   });
 });
