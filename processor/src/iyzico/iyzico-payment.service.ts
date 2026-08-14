@@ -372,7 +372,7 @@ export class IyzicoPaymentService {
             throw new InternalServerErrorException('No return URL available');
         }
         const url = new URL(returnUrl);
-        url.searchParams.set('paymentReference', payment.id);
+        url.searchParams.set('paymentId', payment.id);
         return url.toString();
     }
 }
