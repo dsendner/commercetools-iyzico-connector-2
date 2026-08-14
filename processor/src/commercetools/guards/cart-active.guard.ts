@@ -70,6 +70,7 @@ export class CartActiveGuard implements CanActivate {
     }
 
     private extractCartId(request: any): string | undefined {
+        this.logger.log(`Extracting cart ID from request: ${JSON.stringify(request.body)}`);
         if (request.cartId) return request.cartId;
 
         if (request.body?.cart?.id) return request.body.cart.id;

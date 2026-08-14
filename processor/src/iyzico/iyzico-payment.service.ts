@@ -375,8 +375,12 @@ export class IyzicoPaymentService {
         url.searchParams.set('paymentId', payment.id);
 
         const extraParams = this.config.get('RETURN_URL_EXTRA_QUERY');
+        this.logger.log(`Raw config value: "${extraParams}"`); // affichera: "zone=toto&subscription=abc"
+        this.logger.log(`Node native env: ${process.env.RETURN_URL_EXTRA_QUERY}`);
+
         if (extraParams) {
             const parsed = new URLSearchParams(extraParams);
+
             parsed.forEach((value, key) => {
                 url.searchParams.set(key, value);
             });

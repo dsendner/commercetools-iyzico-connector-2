@@ -63,3 +63,4 @@ export function transportError(): AxiosError {
   // No `response` → treated as a transport error (retryable)
   return new AxiosError('timeout', 'ECONNABORTED', {} as InternalAxiosRequestConfig);
 }
+

@@ -23,7 +23,7 @@ export const envSchema = z.object({
     IYZICO_TIMEOUT: z.number().positive().default(30000),
 
     SUBSCRIPTION_DETECTION_FIELD: z.string().min(1),
-    RETURN_URL_EXTRA_QUERY: z.string().optional().default(''),
+    RETURN_URL_EXTRA_QUERY: z.string().optional(),
 });
 
 

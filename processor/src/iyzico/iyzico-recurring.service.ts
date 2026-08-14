@@ -114,7 +114,7 @@ export class IyzicoRecurringService {
             throw new BadRequestException('Recurring payment requires an authenticated customer');
         }
 
-        const paymentMethodId = cart.custom?.fields?.paymentMethodId as string | undefined;
+        const paymentMethodId = cart.custom?.fields?.cardId as string | undefined;
 
         if (!paymentMethodId) {
             throw new BadRequestException(
