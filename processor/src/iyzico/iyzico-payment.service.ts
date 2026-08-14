@@ -373,6 +373,7 @@ export class IyzicoPaymentService {
         }
         const url = new URL(returnUrl);
         url.searchParams.set('paymentId', payment.id);
+        url.searchParams.set('zone', 'tr');
         return url.toString();
     }
 }
