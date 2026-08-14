@@ -68,3 +68,6 @@ deployAs:
         - key: IYZICO_SECRET_KEY
           description: Iyzico secret key
           required: true
+        - key: RETURN_URL_EXTRA_QUERY
+          description: Extra query params appended to the return URL, includes sensitive keys
+          required: false

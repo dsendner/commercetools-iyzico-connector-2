@@ -97,7 +97,7 @@ export class IyzicoPaymentService {
         const payment = await this.findPaymentByToken(req.token);
         const result = await this.finalizePayment(payment, req.token);
 
-        return this.buildReturnUrl(payment, result, req.returnUrl);
+        return this.buildReturnUrl(payment, req.returnUrl);
     }
 
     async handleWebhook(payload: IyzicoWebhookPayload, signature: string): Promise<void> {
@@ -255,7 +255,7 @@ export class IyzicoPaymentService {
         flow: FlowEndpoints,
     ): Promise<IyzicoRetrieveResponse> {
         const conversationId = payment.custom?.fields?.conversationId as string
-        ?? this.conversationIdFor(payment); 
+            ?? this.conversationIdFor(payment);
         const response = await this.iyzico.post<IyzicoRetrieveResponse>(flow.retrieve, {
             locale: LOCALE,
             conversationId: conversationId,
@@ -364,16 +364,24 @@ export class IyzicoPaymentService {
 
     private buildReturnUrl(
         payment: connectPaymentsSdk.Payment,
-        result: IyzicoPaymentResult,
         returnUrl?: string,
     ): string {
         if (!returnUrl) {
             this.logger.warn(`No returnUrl on callback for payment ${payment.id}`);
             throw new InternalServerErrorException('No return URL available');
         }
+
         const url = new URL(returnUrl);
         url.searchParams.set('paymentId', payment.id);
-        url.searchParams.set('zone', 'tr');
+
+        const extraParams = this.config.get('RETURN_URL_EXTRA_QUERY');
+        if (extraParams) {
+            const parsed = new URLSearchParams(extraParams);
+            parsed.forEach((value, key) => {
+                url.searchParams.set(key, value);
+            });
+        }
+
         return url.toString();
     }
 }
