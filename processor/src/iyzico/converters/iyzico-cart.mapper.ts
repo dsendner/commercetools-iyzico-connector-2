@@ -58,7 +58,47 @@ export function mapBuyer(cart: Cart, clientIp: string): IyzicoBuyer {
 }
 
 export function mapBasketItems(cart: Cart): IyzicoBasketItem[] {
-  return cart.lineItems.map((item) => mapLineItem(item, cart.locale));
+  const basketItems = cart.lineItems.map((item) => mapLineItem(item, cart.locale));
+
+  if (cart.shippingInfo?.price && cart.shippingInfo.price.centAmount > 0) {
+    basketItems.push({
+      id: `shipping-${cart.id}`,
+      name: 'Shipping',
+      category1: 'Shipping',
+      itemType: 'PHYSICAL',
+      price: centAmountToIyzicoPrice(
+        cart.shippingInfo.price.centAmount,
+        cart.shippingInfo.price.fractionDigits,
+      ),
+    });
+  }
+
+  if (cart.customLineItems?.length) {
+    for (const item of cart.customLineItems) {
+      if (item.money.centAmount !== 0) {
+        basketItems.push({
+          id: `custom-${item.id}`,
+          name: Object.values(item.name)[0] ?? 'Custom item',
+          category1: 'Custom',
+          itemType: 'PHYSICAL',
+          price: centAmountToIyzicoPrice(item.money.centAmount, item.money.fractionDigits),
+        });
+      }
+    }
+  }
+
+  const discountAmount = cart.discountOnTotalPrice?.discountedAmount?.centAmount ?? 0;
+  if (discountAmount > 0) {
+    basketItems.push({
+      id: `discount-${cart.id}`,
+      name: 'Discount',
+      category1: 'Discount',
+      itemType: 'VIRTUAL',
+      price: `-${centAmountToIyzicoPrice(discountAmount, cart.totalPrice.fractionDigits)}`,
+    });
+  }
+
+  return basketItems;
 }
 
 export function validateBasketTotal(
@@ -66,13 +106,15 @@ export function validateBasketTotal(
   total: Cart['totalPrice'],
   price: string,
 ): void {
-  const basketTotal = basketItems
-    .reduce((sum, item) => sum + parseFloat(item.price), 0)
-    .toFixed(total.fractionDigits);
+  const basketTotalInMinorUnits = basketItems.reduce((sum, item) => {
+    return sum + Math.round(Number(item.price) * Math.pow(10, total.fractionDigits));
+  }, 0);
 
-  if (basketTotal !== price) {
+  const totalInMinorUnits = total.centAmount;
+
+  if (basketTotalInMinorUnits !== totalInMinorUnits) {
     throw new Error(
-      `Basket items total (${basketTotal}) does not equal cart total (${price}). ` +
+      `Basket items total (${(basketTotalInMinorUnits / Math.pow(10, total.fractionDigits)).toFixed(total.fractionDigits)}) does not equal cart total (${price}). ` +
         `Iyzico requires the sum of line items to match the paid price exactly. ` +
         `This usually means shipping/discounts are not represented as line items.`,
     );

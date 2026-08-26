@@ -7,13 +7,12 @@ import {
 } from './helpers/ct-client-mock';
 
 jest.mock('@commercetools/connect-payments-sdk', () => {
-  const actual = jest.requireActual('@commercetools/connect-payments-sdk');
   return {
-    ...actual,
     getProcessorUrlFromContext: jest.fn().mockReturnValue('https://processor.example'),
     getCtSessionIdFromContext: jest.fn().mockReturnValue('sess-1'),
     getMerchantReturnUrlFromContext: jest.fn().mockReturnValue('https://shop.example/return'),
     getFutureOrderNumberFromContext: jest.fn().mockReturnValue(undefined),
+    GenerateInterfaceInteractionCustomFieldsDraft: jest.fn((input: unknown) => ({ fields: input })),
   };
 });
 
@@ -92,7 +91,46 @@ describe('IyzicoPaymentService.createSession (service + converter + client)', ()
     );
   });
 
-  it('throws 500 and does NOT store a token when Iyzico rejects the init', async () => {
+  it('includes shipping and discount in the Iyzico basket total so it matches the payable amount', async () => {
+    const initResponse = {
+      status: 'Success',
+      conversationId: 'pay-1',
+      token: 'tok-xyz',
+      checkoutFormContent: '<script>iyzicoForm</script>',
+      paymentPageUrl: 'https://sandbox-cpp.iyzipay.com/?token=tok-xyz',
+    };
+
+    const { client, captured } = buildTestClient([initResponse]);
+    const cart = {
+      ...sessionRequest.cart,
+      id: 'cart-2',
+      totalPrice: { centAmount: 4490, currencyCode: 'TRY', fractionDigits: 2 },
+      shippingInfo: { price: { centAmount: 500, currencyCode: 'TRY', fractionDigits: 2 } },
+      discountOnTotalPrice: { discountedAmount: { centAmount: 1000, currencyCode: 'TRY', fractionDigits: 2 } },
+      lineItems: [{
+        id: 'li-1',
+        name: { tr: 'Tişört' },
+        quantity: 1,
+        totalPrice: { centAmount: 4990, currencyCode: 'TRY', fractionDigits: 2 },
+      }],
+    };
+
+    const ct = makeCTServicesMock();
+    ct.cart.getCart.mockResolvedValue(cart as any);
+    ct.payment.createPayment.mockResolvedValue({ id: 'pay-1', version: 1 } as any);
+    ct.payment.updatePayment.mockResolvedValue({ id: 'pay-1', version: 2 } as any);
+    ct.cart.addPayment.mockResolvedValue(cart as any);
+
+    await makePaymentService(ct, client).createSession({ ...sessionRequest, cart: cart as any });
+
+    const sent = JSON.parse(captured[0].data as string);
+    const basketTotal = sent.basketItems.reduce((sum: number, item: { price: string }) => sum + Number(item.price), 0);
+
+    expect(basketTotal).toBe(44.9);
+    expect(sent.price).toBe('44.90');
+  });
+
+  it('throws a 500 and does NOT store a token when Iyzico rejects the init', async () => {
     const { client } = buildTestClient([
       {
         status: 'Failure',
