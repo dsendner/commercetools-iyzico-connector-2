@@ -112,19 +112,23 @@ export function mapBasketItems(cart: Cart): IyzicoBasketItem[] {
     }
   }
 
-  const discount = cart.discountOnTotalPrice;
-  const discountAmount =
-    (cart.taxedPrice
-      ? (discount?.discountedGrossAmount ?? discount?.discountedAmount)
-      : discount?.discountedAmount
-    )?.centAmount ?? 0;
-  if (discountAmount > 0) {
+  // Reconcile any remaining gap between the summed basket items and the
+  // cart's actual payable total (e.g. cart-level/discount-code discounts
+  // that aren't reflected in individual line item or shipping prices).
+  const fractionDigits = cart.totalPrice.fractionDigits;
+  const basketItemsTotal = basketItems.reduce(
+    (sum, item) =>
+      sum + Math.round(Number(item.price) * Math.pow(10, fractionDigits)),
+    0,
+  );
+  const adjustment = cart.totalPrice.centAmount - basketItemsTotal;
+  if (adjustment !== 0) {
     basketItems.push({
       id: `discount-${cart.id}`,
       name: 'Discount',
       category1: 'Discount',
       itemType: 'VIRTUAL',
-      price: `-${centAmountToIyzicoPrice(discountAmount, cart.totalPrice.fractionDigits)}`,
+      price: centAmountToIyzicoPrice(adjustment, fractionDigits),
     });
   }
 
