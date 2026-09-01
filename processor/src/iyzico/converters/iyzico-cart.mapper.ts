@@ -1,9 +1,6 @@
-import { LineItem, Cart, Address } from '@commercetools/connect-payments-sdk';
+import { LineItem, Cart, Address } from "@commercetools/connect-payments-sdk";
 
-export function centAmountToIyzicoPrice(
-  centAmount: number,
-  fractionDigits = 2,
-): string {
+export function centAmountToIyzicoPrice(centAmount: number, fractionDigits = 2): string {
   return (centAmount / Math.pow(10, fractionDigits)).toFixed(fractionDigits);
 }
 
@@ -17,11 +14,9 @@ export function contactName(addr?: Address): string {
 }
 
 export function singleLineAddress(addr?: Address): string {
-  return (
-    [addr?.streetName, addr?.streetNumber, addr?.postalCode]
-      .filter(Boolean)
-      .join(' ') || 'N/A'
-  );
+  return [addr?.streetName, addr?.streetNumber, addr?.postalCode]
+    .filter(Boolean)
+    .join(' ') || 'N/A';
 }
 
 export function mapAddress(addr?: Address): IyzicoAddress {
@@ -39,17 +34,12 @@ export function lineItemName(item: LineItem, locale?: string): string {
 }
 
 export function mapLineItem(item: LineItem, locale?: string): IyzicoBasketItem {
-  const itemTotal = item.taxedPrice?.totalGross ?? item.totalPrice;
-
   return {
     id: item.id,
     name: lineItemName(item, locale),
     category1: 'General',
     itemType: 'PHYSICAL',
-    price: centAmountToIyzicoPrice(
-      itemTotal.centAmount,
-      itemTotal.fractionDigits,
-    ),
+    price: centAmountToIyzicoPrice(item.totalPrice.centAmount, item.totalPrice.fractionDigits),
   };
 }
 
@@ -58,8 +48,7 @@ export function mapBuyer(cart: Cart, clientIp: string): IyzicoBuyer {
     id: cart.customerId ?? cart.anonymousId ?? 'guest',
     name: cart.billingAddress?.firstName ?? 'N/A',
     surname: cart.billingAddress?.lastName ?? 'N/A',
-    email:
-      cart.customerEmail ?? cart.billingAddress?.email ?? 'noemail@example.com',
+    email: cart.customerEmail ?? cart.billingAddress?.email ?? 'noemail@example.com',
     identityNumber: '74300864791',
     registrationAddress: singleLineAddress(cart.billingAddress),
     city: cart.billingAddress?.city ?? 'N/A',
@@ -68,71 +57,44 @@ export function mapBuyer(cart: Cart, clientIp: string): IyzicoBuyer {
   };
 }
 
+export function mapShippingItem(cart: Cart): IyzicoBasketItem | null {
+  if (!cart.shippingInfo?.price) {
+    return null;
+  }
+
+  const isShippingFree = cart.shippingInfo.discountedPrice?.value?.centAmount === 0;
+  
+  if (isShippingFree || cart.shippingInfo.price.centAmount <= 0) {
+    return null;
+  }
+
+  return {
+    id: `shipping-${cart.id}`,
+    name: 'Shipping',
+    category1: 'Shipping',
+    itemType: 'PHYSICAL',
+    price: centAmountToIyzicoPrice(
+      cart.shippingInfo.price.centAmount,
+      cart.shippingInfo.price.fractionDigits,
+    ),
+  };
+}
+
 export function mapBasketItems(cart: Cart): IyzicoBasketItem[] {
-  const basketItems = cart.lineItems.map((item) =>
-    mapLineItem(item, cart.locale),
-  );
+  const basketItems = cart.lineItems.map((item) => mapLineItem(item, cart.locale));
 
-  if (cart.shippingInfo?.price) {
-    const shippingPrice =
-      cart.shippingInfo.discountedPrice?.value ??
-      cart.shippingInfo.taxedPrice?.totalGross ??
-      cart.shippingInfo.price;
-
-    if (shippingPrice.centAmount > 0) {
-      basketItems.push({
-        id: `shipping-${cart.id}`,
-        name: 'Shipping',
-        category1: 'Shipping',
-        itemType: 'PHYSICAL',
-        price: centAmountToIyzicoPrice(
-          shippingPrice.centAmount,
-          shippingPrice.fractionDigits,
-        ),
-      });
-    }
-  }
-
-  if (cart.customLineItems?.length) {
-    for (const item of cart.customLineItems) {
-      const itemTotal = item.taxedPrice?.totalGross ?? item.money;
-
-      if (itemTotal.centAmount !== 0) {
-        basketItems.push({
-          id: `custom-${item.id}`,
-          name: Object.values(item.name)[0] ?? 'Custom item',
-          category1: 'Custom',
-          itemType: 'PHYSICAL',
-          price: centAmountToIyzicoPrice(
-            itemTotal.centAmount,
-            itemTotal.fractionDigits,
-          ),
-        });
-      }
-    }
-  }
-
-  // Reconcile any remaining gap between the summed basket items and the
-  // cart's actual payable total (e.g. cart-level/discount-code discounts
-  // that aren't reflected in individual line item or shipping prices).
-  const fractionDigits = cart.totalPrice.fractionDigits;
-  const basketItemsTotal = basketItems.reduce(
-    (sum, item) =>
-      sum + Math.round(Number(item.price) * Math.pow(10, fractionDigits)),
-    0,
-  );
-  const adjustment = cart.totalPrice.centAmount - basketItemsTotal;
-  if (adjustment !== 0) {
-    basketItems.push({
-      id: `discount-${cart.id}`,
-      name: 'Discount',
-      category1: 'Discount',
-      itemType: 'VIRTUAL',
-      price: centAmountToIyzicoPrice(adjustment, fractionDigits),
-    });
+  const shippingItem = mapShippingItem(cart);
+  if (shippingItem) {
+    basketItems.push(shippingItem);
   }
 
   return basketItems;
+}
+
+export function calculateBasketItemsTotal(
+  basketItems: IyzicoBasketItem[],
+): number {
+  return basketItems.reduce((sum, item) => sum + parseFloat(item.price), 0);
 }
 
 export function validateBasketTotal(
@@ -140,17 +102,13 @@ export function validateBasketTotal(
   total: Cart['totalPrice'],
   price: string,
 ): void {
-  const basketTotalInMinorUnits = basketItems.reduce((sum, item) => {
-    return (
-      sum + Math.round(Number(item.price) * Math.pow(10, total.fractionDigits))
-    );
-  }, 0);
+  const basketTotal = basketItems
+    .reduce((sum, item) => sum + parseFloat(item.price), 0)
+    .toFixed(total.fractionDigits);
 
-  const totalInMinorUnits = total.centAmount;
-
-  if (basketTotalInMinorUnits !== totalInMinorUnits) {
+  if (basketTotal !== price) {
     throw new Error(
-      `Basket items total (${(basketTotalInMinorUnits / Math.pow(10, total.fractionDigits)).toFixed(total.fractionDigits)}) does not equal cart total (${price}). ` +
+      `Basket items total (${basketTotal}) does not equal cart total (${price}). ` +
         `Iyzico requires the sum of line items to match the paid price exactly. ` +
         `This usually means shipping/discounts are not represented as line items.`,
     );
