@@ -1,5 +1,5 @@
 import { Cart, Payment } from "@commercetools/connect-payments-sdk";
-import { centAmountToIyzicoPrice, IyzicoAddress, IyzicoBasketItem, IyzicoBuyer, mapAddress, mapBasketItems, mapBuyer, toIyzicoLocale, validateBasketTotal } from "./iyzico-cart.mapper";
+import { centAmountToIyzicoPrice, IyzicoAddress, IyzicoBasketItem, IyzicoBuyer, mapAddress, mapBasketItems, mapBuyer, toIyzicoLocale, calculateBasketItemsTotal } from "./iyzico-cart.mapper";
 
 export interface IyzicoInitializeRequest {
   locale: string;
@@ -40,18 +40,24 @@ export function toIyzicoInitializeRequest(
   cardUserKey: string | undefined,
   conversationId: string
 ): IyzicoInitializeRequest {
-  const total = cart.totalPrice;
-  const price = centAmountToIyzicoPrice(total.centAmount, total.fractionDigits);
   const basketItems = mapBasketItems(cart);
-
-  validateBasketTotal(basketItems, total, price);
+  
+  // price = sum of basket items (gross, before discounts)
+  const priceTotalValue = calculateBasketItemsTotal(basketItems);
+  const price = priceTotalValue.toFixed(cart.totalPrice.fractionDigits);
+  
+  // paidPrice = actual amount to charge (after all discounts)
+  const paidPrice = centAmountToIyzicoPrice(
+    cart.totalPrice.centAmount,
+    cart.totalPrice.fractionDigits
+  );
 
   return {
     locale: toIyzicoLocale(cart.locale),
     conversationId: conversationId,
     price,
-    paidPrice: price,
-    currency: total.currencyCode,
+    paidPrice,
+    currency: cart.totalPrice.currencyCode,
     basketId: cart.id,
     paymentGroup: 'PRODUCT',
     callbackUrl,
