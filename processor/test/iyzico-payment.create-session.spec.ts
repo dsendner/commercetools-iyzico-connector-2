@@ -206,4 +206,38 @@ describe('IyzicoPaymentService.createSession (service + converter + client)', ()
 
     expect(basketItems.map((item: any) => item.price)).toEqual(['6679.00']);
   });
+
+  it('does not include free gift line items in basket items', () => {
+    const cart = {
+      id: 'cart-free-gift',
+      locale: 'tr-TR',
+      totalPrice: {
+        centAmount: 667900,
+        currencyCode: 'TRY',
+        fractionDigits: 2,
+      },
+      lineItems: [
+        {
+          id: 'li-paid',
+          name: { tr: 'Product' },
+          totalPrice: {
+            centAmount: 667900,
+            currencyCode: 'TRY',
+            fractionDigits: 2,
+          },
+        },
+        {
+          id: 'li-gift',
+          name: { tr: 'Gift' },
+          totalPrice: {
+            centAmount: 0,
+            currencyCode: 'TRY',
+            fractionDigits: 2,
+          },
+        },
+      ],
+    } as any;
+
+    expect(mapBasketItems(cart).map((item) => item.price)).toEqual(['6679.00']);
+  });
 });
