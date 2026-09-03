@@ -81,7 +81,9 @@ export function mapShippingItem(cart: Cart): IyzicoBasketItem | null {
 }
 
 export function mapBasketItems(cart: Cart): IyzicoBasketItem[] {
-  const basketItems = cart.lineItems.map((item) => mapLineItem(item, cart.locale));
+  const basketItems = cart.lineItems
+    .filter((item) => item.totalPrice.centAmount > 0)
+    .map((item) => mapLineItem(item, cart.locale));
 
   const shippingItem = mapShippingItem(cart);
   if (shippingItem) {
