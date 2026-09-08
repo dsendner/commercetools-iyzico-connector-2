@@ -6,6 +6,7 @@
  *   2. Retrieves the payment persisted by Iyzico.
  *   3. Refunds every item transaction individually.
  *   4. Polls Iyzico reporting until the complete refund is visible.
+ *   5. Replays one refund and requires Iyzico to refuse it.
  *
  * The basket carries several lines on purpose. A commercetools refund maps to one
  * Iyzico call per basket line, so a single-line basket would never exercise the
@@ -260,6 +261,47 @@ function reportContainsRefunds(
   });
 }
 
+/**
+ * Refunds an item that was already refunded, and requires Iyzico to reject it.
+ *
+ * This is the safety net the connector relies on. Its resume logic skips items it has
+ * already refunded, so a customer is never paid twice; this step proves that Iyzico
+ * would refuse anyway, and that the failure branch of the response contract accepts a
+ * genuine rejection rather than only the fixtures used in the unit tests.
+ */
+async function verifyRepeatedRefundIsRejected(
+  client: ReturnType<typeof buildScriptContext>['client'],
+  item: IyzicoRetrievedPayment['itemTransactions'][number],
+  conversationId: string,
+): Promise<void> {
+  logStep('Step 5 of 5 · Confirming that a repeated refund is refused…');
+  logDetail('Replaying item', `${item.itemId} · Transaction ${item.paymentTransactionId}`);
+
+  const request = {
+    conversationId: `${conversationId}-refund-replay-${item.itemId}`,
+    currency,
+    locale: 'tr',
+    paymentTransactionId: item.paymentTransactionId,
+    price: item.paidPrice,
+  };
+  const raw = await client
+    .post<unknown>(REFUND_ENDPOINT, request)
+    .catch((error: unknown) => fail(`The repeated refund request did not complete. ${describeError(error)}`));
+
+  const parsed = iyzicoRefundResponseSchema.safeParse(raw);
+  if (!parsed.success) {
+    fail(`Iyzico returned a rejection that does not match the response contract:\n${describeValidationIssues(parsed.error)}`);
+  }
+  if (parsed.data.status === 'success') {
+    fail(`Iyzico refunded item ${item.itemId} a second time. The amount was paid back twice.`);
+  }
+
+  assertEqual('rejected refund conversationId', parsed.data.conversationId ?? '', request.conversationId);
+  logSuccess('Iyzico refused the repeated refund, and the rejection matches the response contract.');
+  logDetail('Error code', parsed.data.errorCode ?? '-');
+  logDetail('Retryable', String(parsed.data.retryable ?? '-'));
+}
+
 const wait = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 async function run(): Promise<void> {
@@ -268,7 +310,7 @@ async function run(): Promise<void> {
   const paymentRequest = buildPaymentRequest(conversationId);
 
   logHeader('Iyzico Payment & Refund Verification', 'Runs the complete charge-to-refund journey without a browser.');
-  logStep('Step 1 of 4 · Charging the official sandbox test card…');
+  logStep('Step 1 of 5 · Charging the official sandbox test card…');
   logDetail('Endpoint', `POST ${baseUrl}${PAYMENT_ENDPOINT}`);
   logDetail('Conversation ID', conversationId);
   logDetail('Charge amount', price, currency);
@@ -293,7 +335,7 @@ async function run(): Promise<void> {
   logDetail('Validated checks', 'Schema · Request match · Totals · Signature');
 
   const detailConversationId = `${conversationId}-detail`;
-  logStep('Step 2 of 4 · Retrieving the payment persisted by Iyzico…');
+  logStep('Step 2 of 5 · Retrieving the payment persisted by Iyzico…');
   logDetail('Endpoint', `POST ${baseUrl}${PAYMENT_DETAIL_ENDPOINT}`);
   logDetail('Conversation ID', detailConversationId);
   const detailRaw = await client
@@ -324,7 +366,7 @@ async function run(): Promise<void> {
   logDetail('Validated checks', 'Identity · State · Items · Totals · Signature');
 
   const expectedRefunds: RefundExpectation[] = [];
-  logStep(`Step 3 of 4 · Refunding ${detail.itemTransactions.length} item transaction(s)…`);
+  logStep(`Step 3 of 5 · Refunding ${detail.itemTransactions.length} item transaction(s)…`);
   for (const item of detail.itemTransactions) {
     const request = {
       conversationId: `${conversationId}-refund-${item.itemId}`,
@@ -371,7 +413,7 @@ async function run(): Promise<void> {
   }
 
   const reportConversationId = `${conversationId}-report`;
-  logStep('Step 4 of 4 · Waiting for every refund to appear in Iyzico reporting…');
+  logStep('Step 4 of 5 · Waiting for every refund to appear in Iyzico reporting…');
   logDetail('Endpoint', `GET ${baseUrl}${REPORTING_ENDPOINT}`);
   logDetail('Maximum attempts', REPORTING_ATTEMPTS);
   for (let attempt = 1; attempt <= REPORTING_ATTEMPTS; attempt += 1) {
@@ -387,6 +429,7 @@ async function run(): Promise<void> {
     }
     if (reportContainsRefunds(report, payment.paymentId, expectedRefunds)) {
       logSuccess('Iyzico reporting confirms that the payment is fully refunded and every item refund is recorded.');
+      await verifyRepeatedRefundIsRejected(client, detail.itemTransactions[0], conversationId);
       logCelebration('Payment creation, persistence and complete refund verified successfully in the Iyzico sandbox.');
       return;
     }
