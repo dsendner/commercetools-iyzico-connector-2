@@ -1,3 +1,4 @@
+import { IyzicoItemTransaction } from '../src/iyzico/contracts/item-transaction.schema';
 import { IyzicoPaymentService } from '../src/iyzico/iyzico-payment.service';
 import {
     makeCTServicesMock,
@@ -143,7 +144,7 @@ describe('IyzicoPaymentService.handleCallback', () => {
 
         const update = ct.payment.updatePayment.mock.calls[0][0];
         const interactionResponse = JSON.parse(String(update.pspInteractions?.[0].fields?.response)) as {
-            itemTransactions: unknown[];
+            itemTransactions: IyzicoItemTransaction[];
             paymentId: string;
         };
 
