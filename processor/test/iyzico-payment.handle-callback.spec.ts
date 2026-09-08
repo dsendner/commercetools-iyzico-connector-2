@@ -116,4 +116,45 @@ describe('IyzicoPaymentService.handleCallback', () => {
         const url = new URL(redirectUrl);
         expect(url.searchParams.get('paymentReference')).toBe('p-3');
     });
+    it('stores the Iyzico payment and item references a later refund will need', async () => {
+        const payment = makePayment({ id: 'p-4' });
+        const cart = makeCart({ id: 'c-4' });
+
+        ct.payment.findPaymentsByInterfaceId.mockResolvedValue([payment]);
+        ct.cart.getCartByPaymentId.mockResolvedValue(cart);
+        iyzico.client.post.mockResolvedValue({
+            status: 'success',
+            paymentStatus: 'SUCCESS',
+            fraudStatus: 1,
+            paymentId: 'iyzico-payment-1',
+            itemTransactions: [
+                {
+                    itemId: 'line-item-1',
+                    paidPrice: 100,
+                    paymentTransactionId: 'iyzico-transaction-1',
+                    price: 100,
+                },
+            ],
+            price: 100,
+            paidPrice: 100,
+        });
+
+        await service.handleCallback({ token: 'iyzico-token-4', returnUrl: 'https://bff.example/callback' });
+
+        const update = ct.payment.updatePayment.mock.calls[0][0];
+        const interactionResponse = JSON.parse(String(update.pspInteractions?.[0].fields?.response)) as {
+            itemTransactions: unknown[];
+            paymentId: string;
+        };
+
+        expect(interactionResponse.paymentId).toBe('iyzico-payment-1');
+        expect(interactionResponse.itemTransactions).toEqual([
+            {
+                itemId: 'line-item-1',
+                paidPrice: 100,
+                paymentTransactionId: 'iyzico-transaction-1',
+                price: 100,
+            },
+        ]);
+    });
 });
