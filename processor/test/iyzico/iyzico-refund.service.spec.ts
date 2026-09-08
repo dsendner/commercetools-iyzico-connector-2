@@ -335,7 +335,7 @@ describe('IyzicoRefundService', () => {
     expect(ct.payment.updatePayment.mock.calls).toHaveLength(0);
   });
 
-  it('skips item refunds already recorded for the same merchant reference', async () => {
+  it('skips item refunds already recorded, regardless of their merchant reference', async () => {
     const ct = makeCTServicesMock();
     const iyzico = makeIyzicoMock();
     const payment = refundablePayment({
@@ -356,6 +356,42 @@ describe('IyzicoRefundService', () => {
     const service = new IyzicoRefundService(ct.payment, iyzico.client);
     const result = await service.refund(payment.id, refundAction);
 
+    expect(result).toEqual({ outcome: PaymentModificationStatus.Approved });
+    expect(iyzico.client.post.mock.calls).toHaveLength(1);
+    expect(iyzico.client.post.mock.calls[0]).toEqual([
+      '/payment/refund',
+      expect.objectContaining({ paymentTransactionId: 'iyzi-tx-2' }),
+    ]);
+  });
+
+  it('does not resend a successfully refunded item when a retry uses a different merchant reference', async () => {
+    const ct = makeCTServicesMock();
+    const iyzico = makeIyzicoMock();
+    // The earlier attempt refunded line-item-1 under a reference the caller no longer sends.
+    const payment = refundablePayment({
+      interfaceInteractions: [
+        confirmInteraction(),
+        stub<Interaction>({
+          fields: {
+            response: JSON.stringify({
+              merchantReference: 'a-completely-different-reference',
+              originalPaymentTransactionId: 'iyzi-tx-1',
+            }),
+            type: 'iyzico-refund-success',
+          },
+          type: { id: 'interaction-type', typeId: 'type' },
+        }),
+      ],
+    });
+    ct.payment.getPayment.mockResolvedValue(payment);
+    ct.payment.updatePayment.mockResolvedValue(payment);
+    resolveEveryRefundSuccessfully(iyzico);
+
+    const service = new IyzicoRefundService(ct.payment, iyzico.client);
+    const result = await service.refund(payment.id, refundAction);
+
+    // Only the item that was never refunded is sent to Iyzico. line-item-1 already
+    // succeeded under another reference and must not be paid back a second time.
     expect(result).toEqual({ outcome: PaymentModificationStatus.Approved });
     expect(iyzico.client.post.mock.calls).toHaveLength(1);
     expect(iyzico.client.post.mock.calls[0]).toEqual([
@@ -690,24 +726,6 @@ describe('IyzicoRefundService', () => {
         outcome: PaymentModificationStatus.Approved,
       },
     );
-  });
-
-  it('does not treat an item recorded for another refund reference as already refunded', async () => {
-    const ct = makeCTServicesMock();
-    const iyzico = makeIyzicoMock();
-    const interaction = recordedRefundInteraction('iyzi-tx-1');
-    interaction.fields.response = JSON.stringify({
-      merchantReference: 'another-refund-reference',
-      originalPaymentTransactionId: 'iyzi-tx-1',
-    });
-    const payment = refundablePayment({ interfaceInteractions: [confirmInteraction(), interaction] });
-    ct.payment.getPayment.mockResolvedValue(payment);
-    ct.payment.updatePayment.mockResolvedValue(payment);
-    resolveEveryRefundSuccessfully(iyzico);
-
-    await new IyzicoRefundService(ct.payment, iyzico.client).refund(payment.id, refundAction);
-
-    expect(iyzico.client.post).toHaveBeenCalledTimes(2);
   });
 
   it('ignores an interaction without an Iyzico type before using an older valid result', async () => {

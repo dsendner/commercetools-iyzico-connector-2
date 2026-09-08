@@ -54,7 +54,7 @@ export class IyzicoRefundService {
             },
         });
 
-        const alreadyRefunded = this.getSuccessfullyRefundedItems(payment, refundReference);
+        const alreadyRefunded = this.getSuccessfullyRefundedItems(payment);
         const pendingRefunds = itemTransactions
             .filter((item) => !alreadyRefunded.has(item.paymentTransactionId))
             .map((item) => ({
@@ -227,13 +227,21 @@ export class IyzicoRefundService {
         return successfulCharges[0];
     }
 
-    private getSuccessfullyRefundedItems(payment: connectPaymentsSdk.Payment, refundReference: string): Set<string> {
+    /**
+     * An item that was ever successfully refunded must never be sent to Iyzico again,
+     * no matter which merchantReference the caller used for that earlier attempt.
+     * merchantReference is not an access check, it carries no authorization; the
+     * OAuth2 scope guard on the endpoint is what decides who may call this. Filtering
+     * this history by reference would only make the connector forget refunds it has
+     * already completed, and resend money that Iyzico already paid back.
+     */
+    private getSuccessfullyRefundedItems(payment: connectPaymentsSdk.Payment): Set<string> {
         const result = new Set<string>();
         for (const interaction of payment.interfaceInteractions ?? []) {
             if (interaction.fields?.type !== 'iyzico-refund-success') continue;
             try {
                 const response = storedIyzicoRefundInteractionSchema.safeParse(JSON.parse(String(interaction.fields.response)));
-                if (response.success && response.data.merchantReference === refundReference) {
+                if (response.success) {
                     result.add(response.data.originalPaymentTransactionId);
                 }
             } catch {
