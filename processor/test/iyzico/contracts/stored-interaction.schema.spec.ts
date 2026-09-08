@@ -1,4 +1,4 @@
-import { storedIyzicoPaymentInteractionSchema } from '../../src/operations/iyzico-interaction.schema';
+import { storedIyzicoPaymentInteractionSchema } from '../../../src/iyzico/contracts/stored-interaction.schema';
 
 describe('storedIyzicoPaymentInteractionSchema', () => {
   it('rejects stored payment interactions without refundable item references', () => {

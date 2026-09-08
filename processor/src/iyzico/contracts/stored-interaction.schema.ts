@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
-import { IyzicoItemTransaction, iyzicoItemTransactionsSchema } from '../iyzico/contracts/item-transaction.schema';
-import { iyzicoIdentifierSchema } from '../iyzico/contracts/primitives.schema';
+import { IyzicoItemTransaction, iyzicoItemTransactionsSchema } from './item-transaction.schema';
+import { iyzicoIdentifierSchema } from './primitives.schema';
 
 export const storedIyzicoPaymentInteractionSchema = z.looseObject({
   itemTransactions: iyzicoItemTransactionsSchema.min(1),

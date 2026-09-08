@@ -8,7 +8,7 @@ import { IyzicoWebhookPayload } from './converters/webhook.converter';
 import { IyzicoCardService } from './iyzico-card.service';
 import { CT_CART_SERVICE, CT_PAYMENT_SERVICE } from '../commercetools/tokens';
 import { AppConfigService } from '../config/config.service';
-import { toStoredItemTransactions } from '../operations/iyzico-interaction.schema';
+import { toStoredItemTransactions } from './contracts/stored-interaction.schema';
 import { getRequestContext } from '../commercetools/context/request-context';
 
 export interface CreateSessionRequest {

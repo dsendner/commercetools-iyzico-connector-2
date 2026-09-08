@@ -5,7 +5,7 @@ import { CT_PAYMENT_SERVICE } from '../commercetools/tokens';
 import {
     storedIyzicoPaymentInteractionSchema,
     storedIyzicoRefundInteractionSchema,
-} from '../operations/iyzico-interaction.schema';
+} from './contracts/stored-interaction.schema';
 import {
     PaymentIntentResponse,
     PaymentModificationStatus,
