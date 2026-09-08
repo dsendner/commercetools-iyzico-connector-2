@@ -2,18 +2,23 @@
  * Verifies the complete Iyzico payment and refund journey in the real sandbox.
  *
  * What this browser-free script does:
- *   1. Charges an official public Iyzico sandbox card.
+ *   1. Charges an official public Iyzico sandbox card for a multi-line basket.
  *   2. Retrieves the payment persisted by Iyzico.
  *   3. Refunds every item transaction individually.
  *   4. Polls Iyzico reporting until the complete refund is visible.
+ *
+ * The basket carries several lines on purpose. A commercetools refund maps to one
+ * Iyzico call per basket line, so a single-line basket would never exercise the
+ * fan-out the connector actually performs in production.
  *
  * Every transactional response is validated against its connector schema,
  * matched to its request and signature-checked before the next step begins.
  *
  * Run:
- *   `npm run iyzico:check-payment-refund -- [price] [currency]`
+ *   `npm run iyzico:check-payment-refund -- [totalPrice] [currency] [itemCount]`
  *
- * The default amount is 1.2 TRY. This script creates a real sandbox charge and refund.
+ * Defaults to 12 TRY spread over 10 basket lines. This script creates a real
+ * sandbox charge and refund.
  */
 
 import { z } from 'zod';
@@ -57,14 +62,39 @@ const TEST_CARD = {
 };
 
 const argumentsResult = z
-  .tuple([z.coerce.number().positive().default(1.2), z.enum(['CHF', 'EUR', 'GBP', 'NOK', 'TRY', 'USD']).default('TRY')])
+  .tuple([
+    z.coerce.number().positive().default(12),
+    z.enum(['CHF', 'EUR', 'GBP', 'NOK', 'TRY', 'USD']).default('TRY'),
+    z.coerce.number().int().min(1).max(50).default(10),
+  ])
   .safeParse(process.argv.slice(2));
 
 if (!argumentsResult.success) {
   fail(`Invalid command arguments:\n${describeValidationIssues(argumentsResult.error)}`);
 }
 
-const [price, currency] = argumentsResult.data;
+const [price, currency, itemCount] = argumentsResult.data;
+
+/**
+ * Splits the total across the basket lines in minor units so the lines always add up
+ * to the exact total. Iyzico rejects a basket whose lines do not sum to the price.
+ */
+function splitPrice(total: number, count: number): number[] {
+  const totalMinorUnits = Math.round(total * 100);
+  if (totalMinorUnits < count) {
+    fail(`A total of ${total} ${currency} cannot be split across ${count} basket lines.`);
+  }
+
+  const baseMinorUnits = Math.floor(totalMinorUnits / count);
+  const linesTakingAnExtraUnit = totalMinorUnits - baseMinorUnits * count;
+
+  return Array.from(
+    { length: count },
+    (_, index) => (baseMinorUnits + (index < linesTakingAnExtraUnit ? 1 : 0)) / 100,
+  );
+}
+
+const itemPrices = splitPrice(price, itemCount);
 
 interface RefundExpectation {
   conversationId: string;
@@ -114,8 +144,13 @@ function assertPaymentContents(
     }
   }
 
-  const itemPaidTotal = payment.itemTransactions.reduce((total, item) => total + item.paidPrice, 0);
-  assertEqual('item paid total', itemPaidTotal, payment.paidPrice);
+  // Summed in minor units: adding several decimal amounts as floating point numbers
+  // drifts, and a ten line basket of 1.2 would otherwise total 11.999999999999998.
+  const itemPaidTotalMinorUnits = payment.itemTransactions.reduce(
+    (total, item) => total + Math.round(item.paidPrice * 100),
+    0,
+  );
+  assertEqual('item paid total', itemPaidTotalMinorUnits, Math.round(payment.paidPrice * 100));
 }
 
 function assertPaymentSignature(
@@ -134,9 +169,13 @@ function buildPaymentRequest(conversationId: string) {
 
   return {
     basketId: conversationId,
-    basketItems: [
-      { category1: 'Payment check', id: 'check-item-1', itemType: 'VIRTUAL', name: 'Payment check item', price },
-    ],
+    basketItems: itemPrices.map((itemPrice, index) => ({
+      category1: 'Payment check',
+      id: `check-item-${index + 1}`,
+      itemType: 'VIRTUAL',
+      name: `Payment check item ${index + 1}`,
+      price: itemPrice,
+    })),
     billingAddress: address,
     buyer: {
       city: 'Istanbul',
@@ -233,6 +272,7 @@ async function run(): Promise<void> {
   logDetail('Endpoint', `POST ${baseUrl}${PAYMENT_ENDPOINT}`);
   logDetail('Conversation ID', conversationId);
   logDetail('Charge amount', price, currency);
+  logDetail('Basket lines', `${itemCount} × ${itemPrices[itemPrices.length - 1]} ${currency}`);
 
   const paymentRaw = await client
     .post<unknown>(PAYMENT_ENDPOINT, paymentRequest)
