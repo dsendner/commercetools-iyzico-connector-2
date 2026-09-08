@@ -20,7 +20,8 @@
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "iyzico:checkout-form": "ts-node src/scripts/iyzico-checkout-form.ts",
     "iyzico:retrieve": "ts-node src/scripts/iyzico-retrieve.ts",
-    "connector:post-deploy": "node dist/connectors/post-deploy.js"
+    "connector:post-deploy": "node dist/connectors/post-deploy.js",
+    "iyzico:check-payment-refund": "ts-node src/scripts/iyzico-payment-refund-check.ts"
   },
   "dependencies": {
     "@commercetools/connect-payments-sdk": "^1.1.0",
