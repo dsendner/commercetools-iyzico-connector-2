@@ -4,7 +4,11 @@ import { BadRequestException, Logger } from '@nestjs/common';
 
 import { PaymentModificationStatus } from '../../src/operations/payment-intents.dto';
 import { IyzicoRefundService } from '../../src/iyzico/iyzico-refund.service';
-import { makeCTServicesMock, makeIyzicoMock, makePayment } from '../helpers/ct-client-mock';
+import {
+  makeCTServicesMock,
+  makeIyzicoMock,
+  makePayment,
+} from '../helpers/ct-client-mock';
 import { stub } from '../helpers/stub';
 
 type Interaction = Payment['interfaceInteractions'][number];
@@ -73,13 +77,18 @@ describe('IyzicoRefundService', () => {
 
   function refundablePayment(overrides: Partial<Payment> = {}) {
     return makePayment({
+      custom: {
+        fields: { conversationId: refundAction.merchantReference },
+      } as never,
       interfaceInteractions: [confirmInteraction()],
       transactions: [successfulCharge()],
       ...overrides,
     });
   }
 
-  const resolveEveryRefundSuccessfully = (iyzico: ReturnType<typeof makeIyzicoMock>) => {
+  const resolveEveryRefundSuccessfully = (
+    iyzico: ReturnType<typeof makeIyzicoMock>,
+  ) => {
     iyzico.client.post.mockImplementation((_, requestValue) => {
       const request = requestValue as {
         conversationId: string;
@@ -159,7 +168,9 @@ describe('IyzicoRefundService', () => {
         type: 'Refund',
       },
     });
-    expect(ct.payment.updatePayment.mock.calls.at(-1)?.[0].pspInteractions).toHaveLength(2);
+    expect(
+      ct.payment.updatePayment.mock.calls.at(-1)?.[0].pspInteractions,
+    ).toHaveLength(2);
   });
 
   it('records Failure and rejects the payment intent when Iyzico refuses an item refund', async () => {
@@ -182,7 +193,10 @@ describe('IyzicoRefundService', () => {
     expect(iyzico.client.post.mock.calls).toHaveLength(2);
     expect(ct.payment.updatePayment.mock.calls).toHaveLength(2);
     expect(ct.payment.updatePayment.mock.calls.at(-1)?.[0]).toMatchObject({
-      pspInteractions: [{ fields: { type: 'iyzico-refund-failure' } }, { fields: { type: 'iyzico-refund-failure' } }],
+      pspInteractions: [
+        { fields: { type: 'iyzico-refund-failure' } },
+        { fields: { type: 'iyzico-refund-failure' } },
+      ],
       transaction: {
         state: 'Failure',
         type: 'Refund',
@@ -256,7 +270,9 @@ describe('IyzicoRefundService', () => {
       status: 'success',
     });
 
-    await expect(refund).resolves.toEqual({ outcome: PaymentModificationStatus.Approved });
+    await expect(refund).resolves.toEqual({
+      outcome: PaymentModificationStatus.Approved,
+    });
   });
 
   it('records every settled result before propagating an Iyzico transport error', async () => {
@@ -265,22 +281,29 @@ describe('IyzicoRefundService', () => {
     const payment = refundablePayment();
     ct.payment.getPayment.mockResolvedValue(payment);
     ct.payment.updatePayment.mockResolvedValue(payment);
-    iyzico.client.post.mockRejectedValueOnce(new Error('socket hang up')).mockResolvedValueOnce({
-      conversationId: 'order-123-refund-line-item-2',
-      currency: 'TRY',
-      paymentId: 'iyzi-payment-1',
-      paymentTransactionId: 'iyzi-tx-2',
-      price: 60,
-      signature: 'signature-2',
-      status: 'success',
-    });
+    iyzico.client.post
+      .mockRejectedValueOnce(new Error('socket hang up'))
+      .mockResolvedValueOnce({
+        conversationId: 'order-123-refund-line-item-2',
+        currency: 'TRY',
+        paymentId: 'iyzi-payment-1',
+        paymentTransactionId: 'iyzi-tx-2',
+        price: 60,
+        signature: 'signature-2',
+        status: 'success',
+      });
 
     const service = new IyzicoRefundService(ct.payment, iyzico.client);
 
-    await expect(service.refund(payment.id, refundAction)).rejects.toThrow('socket hang up');
+    await expect(service.refund(payment.id, refundAction)).rejects.toThrow(
+      'socket hang up',
+    );
     expect(iyzico.client.post).toHaveBeenCalledTimes(2);
     expect(ct.payment.updatePayment.mock.calls.at(-1)?.[0]).toMatchObject({
-      pspInteractions: [{ fields: { type: 'iyzico-refund-failure' } }, { fields: { type: 'iyzico-refund-success' } }],
+      pspInteractions: [
+        { fields: { type: 'iyzico-refund-failure' } },
+        { fields: { type: 'iyzico-refund-success' } },
+      ],
       transaction: { state: 'Failure', type: 'Refund' },
     });
   });
@@ -298,19 +321,26 @@ describe('IyzicoRefundService', () => {
         ...refundAction,
         amount: { centAmount: 5000, currencyCode: 'TRY' },
       }),
-    ).rejects.toThrow('Iyzico refunds currently support the full payment amount only');
+    ).rejects.toThrow(
+      'Iyzico refunds currently support the full payment amount only',
+    );
     expect(iyzico.client.post.mock.calls).toHaveLength(0);
   });
 
   it('rejects payments whose Iyzico item transaction references were not stored', async () => {
     const ct = makeCTServicesMock();
     const iyzico = makeIyzicoMock();
-    const payment = { ...refundablePayment(), interfaceInteractions: undefined as never };
+    const payment = {
+      ...refundablePayment(),
+      interfaceInteractions: undefined as never,
+    };
     ct.payment.getPayment.mockResolvedValue(payment);
 
     const service = new IyzicoRefundService(ct.payment, iyzico.client);
 
-    await expect(service.refund(payment.id, refundAction)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      service.refund(payment.id, refundAction),
+    ).rejects.toBeInstanceOf(BadRequestException);
     expect(iyzico.client.post.mock.calls).toHaveLength(0);
   });
 
@@ -339,7 +369,10 @@ describe('IyzicoRefundService', () => {
     const ct = makeCTServicesMock();
     const iyzico = makeIyzicoMock();
     const payment = refundablePayment({
-      interfaceInteractions: [confirmInteraction(), recordedRefundInteraction('iyzi-tx-1')],
+      interfaceInteractions: [
+        confirmInteraction(),
+        recordedRefundInteraction('iyzi-tx-1'),
+      ],
     });
     ct.payment.getPayment.mockResolvedValue(payment);
     ct.payment.updatePayment.mockResolvedValue(payment);
@@ -404,7 +437,9 @@ describe('IyzicoRefundService', () => {
     const ct = makeCTServicesMock();
     const iyzico = makeIyzicoMock();
     const payment = refundablePayment({
-      interfaceInteractions: [confirmInteraction({ interactionId: 'token-selected' })],
+      interfaceInteractions: [
+        confirmInteraction({ interactionId: 'token-selected' }),
+      ],
       transactions: [
         successfulCharge({ id: 'charge-other', interactionId: 'token-other' }),
         successfulCharge({ interactionId: 'token-selected' }),
@@ -471,7 +506,10 @@ describe('IyzicoRefundService', () => {
     );
     expect(ct.payment.updatePayment.mock.calls).toHaveLength(2);
     expect(ct.payment.updatePayment.mock.calls.at(-1)?.[0]).toMatchObject({
-      pspInteractions: [{ fields: { type: 'iyzico-refund-failure' } }, { fields: { type: 'iyzico-refund-success' } }],
+      pspInteractions: [
+        { fields: { type: 'iyzico-refund-failure' } },
+        { fields: { type: 'iyzico-refund-success' } },
+      ],
       transaction: { state: 'Failure', type: 'Refund' },
     });
   });
@@ -510,39 +548,66 @@ describe('IyzicoRefundService', () => {
     );
     expect(ct.payment.updatePayment.mock.calls).toHaveLength(2);
     expect(ct.payment.updatePayment.mock.calls.at(-1)?.[0]).toMatchObject({
-      pspInteractions: [{ fields: { type: 'iyzico-refund-failure' } }, { fields: { type: 'iyzico-refund-failure' } }],
+      pspInteractions: [
+        { fields: { type: 'iyzico-refund-failure' } },
+        { fields: { type: 'iyzico-refund-failure' } },
+      ],
       transaction: { state: 'Failure', type: 'Refund' },
     });
   });
 
-  it('creates a stable refund reference when the caller does not provide one', async () => {
+  it('rejects a refund whose merchant reference does not match the order stamped on the payment', async () => {
     const ct = makeCTServicesMock();
     const iyzico = makeIyzicoMock();
-    const payment = refundablePayment();
-    ct.payment.getPayment.mockResolvedValue(payment);
-    ct.payment.updatePayment.mockResolvedValue(payment);
-    resolveEveryRefundSuccessfully(iyzico);
-
-    await new IyzicoRefundService(ct.payment, iyzico.client).refund(payment.id, {
-      ...refundAction,
-      merchantReference: undefined,
+    const payment = refundablePayment({
+      custom: { fields: { conversationId: 'order-999-unrelated' } } as never,
     });
+    ct.payment.getPayment.mockResolvedValue(payment);
 
-    expect(iyzico.client.post).toHaveBeenCalledWith(
-      '/payment/refund',
-      expect.objectContaining({ conversationId: `refund-${payment.id}-10000-line-item-1` }),
+    await expect(
+      new IyzicoRefundService(ct.payment, iyzico.client).refund(
+        payment.id,
+        refundAction,
+      ),
+    ).rejects.toThrow(
+      `Payment ${payment.id} does not belong to order ${refundAction.merchantReference}`,
     );
+    expect(ct.payment.updatePayment).not.toHaveBeenCalled();
+    expect(iyzico.client.post).not.toHaveBeenCalled();
+  });
+
+  it('rejects a refund when the payment carries no order number at all', async () => {
+    const ct = makeCTServicesMock();
+    const iyzico = makeIyzicoMock();
+    const payment = refundablePayment({ custom: undefined });
+    ct.payment.getPayment.mockResolvedValue(payment);
+
+    await expect(
+      new IyzicoRefundService(ct.payment, iyzico.client).refund(
+        payment.id,
+        refundAction,
+      ),
+    ).rejects.toThrow(
+      `Payment ${payment.id} does not belong to order ${refundAction.merchantReference}`,
+    );
+    expect(ct.payment.updatePayment).not.toHaveBeenCalled();
+    expect(iyzico.client.post).not.toHaveBeenCalled();
   });
 
   it('rejects a payment owned by another payment interface before creating a Refund transaction', async () => {
     const ct = makeCTServicesMock();
     const iyzico = makeIyzicoMock();
-    const payment = refundablePayment({ paymentMethodInfo: { paymentInterface: 'adyen' } });
+    const payment = refundablePayment({
+      paymentMethodInfo: { paymentInterface: 'adyen' },
+    });
     ct.payment.getPayment.mockResolvedValue(payment);
 
-    await expect(new IyzicoRefundService(ct.payment, iyzico.client).refund(payment.id, refundAction)).rejects.toThrow(
-      `Payment ${payment.id} is not an Iyzico payment`,
-    );
+    await expect(
+      new IyzicoRefundService(ct.payment, iyzico.client).refund(
+        payment.id,
+        refundAction,
+      ),
+    ).rejects.toThrow(`Payment ${payment.id} is not an Iyzico payment`);
     expect(ct.payment.updatePayment).not.toHaveBeenCalled();
     expect(iyzico.client.post).not.toHaveBeenCalled();
   });
@@ -558,7 +623,9 @@ describe('IyzicoRefundService', () => {
         ...refundAction,
         transactionId: 'unknown-charge',
       }),
-    ).rejects.toThrow(`Payment ${payment.id} has no successful Charge transaction unknown-charge`);
+    ).rejects.toThrow(
+      `Payment ${payment.id} has no successful Charge transaction unknown-charge`,
+    );
     expect(iyzico.client.post).not.toHaveBeenCalled();
   });
 
@@ -580,21 +647,29 @@ describe('IyzicoRefundService', () => {
 
   it.each([
     ['no successful Charge', []],
-    ['more than one successful Charge', [successfulCharge(), successfulCharge({ id: 'charge-2' })]],
-  ])('requires transactionId when the payment has %s', async (_, transactions) => {
-    const ct = makeCTServicesMock();
-    const iyzico = makeIyzicoMock();
-    const payment = refundablePayment({ transactions });
-    ct.payment.getPayment.mockResolvedValue(payment);
+    [
+      'more than one successful Charge',
+      [successfulCharge(), successfulCharge({ id: 'charge-2' })],
+    ],
+  ])(
+    'requires transactionId when the payment has %s',
+    async (_, transactions) => {
+      const ct = makeCTServicesMock();
+      const iyzico = makeIyzicoMock();
+      const payment = refundablePayment({ transactions });
+      ct.payment.getPayment.mockResolvedValue(payment);
 
-    await expect(
-      new IyzicoRefundService(ct.payment, iyzico.client).refund(payment.id, {
-        ...refundAction,
-        transactionId: undefined,
-      }),
-    ).rejects.toThrow(`Payment ${payment.id} must have exactly one successful Charge when transactionId is omitted`);
-    expect(iyzico.client.post).not.toHaveBeenCalled();
-  });
+      await expect(
+        new IyzicoRefundService(ct.payment, iyzico.client).refund(payment.id, {
+          ...refundAction,
+          transactionId: undefined,
+        }),
+      ).rejects.toThrow(
+        `Payment ${payment.id} must have exactly one successful Charge when transactionId is omitted`,
+      );
+      expect(iyzico.client.post).not.toHaveBeenCalled();
+    },
+  );
 
   it('rejects a second successful refund even when it uses another merchant reference', async () => {
     const ct = makeCTServicesMock();
@@ -613,9 +688,12 @@ describe('IyzicoRefundService', () => {
     });
     ct.payment.getPayment.mockResolvedValue(payment);
 
-    await expect(new IyzicoRefundService(ct.payment, iyzico.client).refund(payment.id, refundAction)).rejects.toThrow(
-      `Payment ${payment.id} is already refunded`,
-    );
+    await expect(
+      new IyzicoRefundService(ct.payment, iyzico.client).refund(
+        payment.id,
+        refundAction,
+      ),
+    ).rejects.toThrow(`Payment ${payment.id} is already refunded`);
     expect(iyzico.client.post).not.toHaveBeenCalled();
   });
 
@@ -626,7 +704,10 @@ describe('IyzicoRefundService', () => {
       interfaceInteractions: [
         confirmInteraction({ interactionId: 'selected-token' }),
         confirmInteraction({ interactionId: 'another-token' }),
-        confirmInteraction({ interactionId: 'selected-token', response: '{not-json' }),
+        confirmInteraction({
+          interactionId: 'selected-token',
+          response: '{not-json',
+        }),
       ],
       transactions: [successfulCharge({ interactionId: 'selected-token' })],
     });
@@ -634,28 +715,36 @@ describe('IyzicoRefundService', () => {
     ct.payment.updatePayment.mockResolvedValue(payment);
     resolveEveryRefundSuccessfully(iyzico);
 
-    await expect(new IyzicoRefundService(ct.payment, iyzico.client).refund(payment.id, refundAction)).resolves.toEqual(
-      {
-        outcome: PaymentModificationStatus.Approved,
-      },
-    );
+    await expect(
+      new IyzicoRefundService(ct.payment, iyzico.client).refund(
+        payment.id,
+        refundAction,
+      ),
+    ).resolves.toEqual({
+      outcome: PaymentModificationStatus.Approved,
+    });
   });
 
   it('uses item transactions recorded by a successful recurring payment', async () => {
     const ct = makeCTServicesMock();
     const iyzico = makeIyzicoMock();
     const payment = refundablePayment({
-      interfaceInteractions: [confirmInteraction({ type: 'iyzico-refill-success' })],
+      interfaceInteractions: [
+        confirmInteraction({ type: 'iyzico-refill-success' }),
+      ],
     });
     ct.payment.getPayment.mockResolvedValue(payment);
     ct.payment.updatePayment.mockResolvedValue(payment);
     resolveEveryRefundSuccessfully(iyzico);
 
-    await expect(new IyzicoRefundService(ct.payment, iyzico.client).refund(payment.id, refundAction)).resolves.toEqual(
-      {
-        outcome: PaymentModificationStatus.Approved,
-      },
-    );
+    await expect(
+      new IyzicoRefundService(ct.payment, iyzico.client).refund(
+        payment.id,
+        refundAction,
+      ),
+    ).resolves.toEqual({
+      outcome: PaymentModificationStatus.Approved,
+    });
   });
 
   it('records a failed Refund before rejecting an invalid Iyzico response', async () => {
@@ -666,9 +755,12 @@ describe('IyzicoRefundService', () => {
     ct.payment.updatePayment.mockResolvedValue(payment);
     iyzico.client.post.mockResolvedValue({ status: 'success' });
 
-    await expect(new IyzicoRefundService(ct.payment, iyzico.client).refund(payment.id, refundAction)).rejects.toThrow(
-      'Iyzico returned an invalid refund response',
-    );
+    await expect(
+      new IyzicoRefundService(ct.payment, iyzico.client).refund(
+        payment.id,
+        refundAction,
+      ),
+    ).rejects.toThrow('Iyzico returned an invalid refund response');
     expect(ct.payment.updatePayment.mock.calls.at(-1)?.[0]).toMatchObject({
       transaction: { state: 'Failure', type: 'Refund' },
     });
@@ -682,13 +774,20 @@ describe('IyzicoRefundService', () => {
     ct.payment.updatePayment.mockResolvedValue(payment);
     iyzico.client.post.mockRejectedValue('private transport detail');
 
-    await expect(new IyzicoRefundService(ct.payment, iyzico.client).refund(payment.id, refundAction)).rejects.toThrow(
-      'Iyzico refund request failed',
-    );
-    expect(ct.payment.updatePayment.mock.calls.at(-1)?.[0].pspInteractions).toEqual(
+    await expect(
+      new IyzicoRefundService(ct.payment, iyzico.client).refund(
+        payment.id,
+        refundAction,
+      ),
+    ).rejects.toThrow('Iyzico refund request failed');
+    expect(
+      ct.payment.updatePayment.mock.calls.at(-1)?.[0].pspInteractions,
+    ).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          fields: expect.objectContaining({ response: expect.stringContaining('Unknown connector error') }),
+          fields: expect.objectContaining({
+            response: expect.stringContaining('Unknown connector error'),
+          }),
         }),
       ]),
     );
@@ -702,9 +801,13 @@ describe('IyzicoRefundService', () => {
     ct.payment.updatePayment.mockResolvedValue(payment);
     iyzico.client.post.mockResolvedValue({ status: 'failure' });
 
-    await new IyzicoRefundService(ct.payment, iyzico.client).refund(payment.id, refundAction);
+    await new IyzicoRefundService(ct.payment, iyzico.client).refund(
+      payment.id,
+      refundAction,
+    );
 
-    const interactions = ct.payment.updatePayment.mock.calls.at(-1)?.[0].pspInteractions ?? [];
+    const interactions =
+      ct.payment.updatePayment.mock.calls.at(-1)?.[0].pspInteractions ?? [];
     expect(interactions[0].fields).toMatchObject({
       interactionId: 'iyzi-tx-1',
       type: 'iyzico-refund-failure',
@@ -715,33 +818,45 @@ describe('IyzicoRefundService', () => {
     const ct = makeCTServicesMock();
     const iyzico = makeIyzicoMock();
     const payment = refundablePayment({
-      interfaceInteractions: [confirmInteraction(), confirmInteraction({ response: JSON.stringify({}) })],
+      interfaceInteractions: [
+        confirmInteraction(),
+        confirmInteraction({ response: JSON.stringify({}) }),
+      ],
     });
     ct.payment.getPayment.mockResolvedValue(payment);
     ct.payment.updatePayment.mockResolvedValue(payment);
     resolveEveryRefundSuccessfully(iyzico);
 
-    await expect(new IyzicoRefundService(ct.payment, iyzico.client).refund(payment.id, refundAction)).resolves.toEqual(
-      {
-        outcome: PaymentModificationStatus.Approved,
-      },
-    );
+    await expect(
+      new IyzicoRefundService(ct.payment, iyzico.client).refund(
+        payment.id,
+        refundAction,
+      ),
+    ).resolves.toEqual({
+      outcome: PaymentModificationStatus.Approved,
+    });
   });
 
   it('ignores an interaction without an Iyzico type before using an older valid result', async () => {
     const ct = makeCTServicesMock();
     const iyzico = makeIyzicoMock();
     const payment = refundablePayment({
-      interfaceInteractions: [confirmInteraction(), stub<Interaction>({ fields: undefined })],
+      interfaceInteractions: [
+        confirmInteraction(),
+        stub<Interaction>({ fields: undefined }),
+      ],
     });
     ct.payment.getPayment.mockResolvedValue(payment);
     ct.payment.updatePayment.mockResolvedValue(payment);
     resolveEveryRefundSuccessfully(iyzico);
 
-    await expect(new IyzicoRefundService(ct.payment, iyzico.client).refund(payment.id, refundAction)).resolves.toEqual(
-      {
-        outcome: PaymentModificationStatus.Approved,
-      },
-    );
+    await expect(
+      new IyzicoRefundService(ct.payment, iyzico.client).refund(
+        payment.id,
+        refundAction,
+      ),
+    ).resolves.toEqual({
+      outcome: PaymentModificationStatus.Approved,
+    });
   });
 });

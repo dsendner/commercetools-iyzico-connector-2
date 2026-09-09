@@ -1,6 +1,9 @@
 import { z } from 'zod';
 
-import { iyzicoDecimalSchema, iyzicoIdentifierSchema } from './primitives.schema';
+import {
+  iyzicoDecimalSchema,
+  iyzicoIdentifierSchema,
+} from './primitives.schema';
 
 export interface IyzicoRefundRequest {
   conversationId: string;

@@ -8,7 +8,7 @@ const amountSchema = z.object({
 const refundPaymentActionSchema = z.object({
   action: z.literal('refundPayment'),
   amount: amountSchema,
-  merchantReference: z.string().min(1).optional(),
+  merchantReference: z.string().min(1),
   transactionId: z.string().min(1).optional(),
 });
 

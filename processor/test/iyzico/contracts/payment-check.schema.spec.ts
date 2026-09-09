@@ -12,7 +12,14 @@ describe('Iyzico payment check schemas', () => {
         conversationId: 'payment-1',
         currency: 'TRY',
         fraudStatus: 1,
-        itemTransactions: [{ itemId: 'item-1', paidPrice: 1.2, paymentTransactionId: 'transaction-1', price: 1.2 }],
+        itemTransactions: [
+          {
+            itemId: 'item-1',
+            paidPrice: 1.2,
+            paymentTransactionId: 'transaction-1',
+            price: 1.2,
+          },
+        ],
         paidPrice: 1.2,
         paymentId: 'iyzico-payment-1',
         paymentStatus: null,
@@ -36,10 +43,49 @@ describe('Iyzico payment check schemas', () => {
         conversationId: 'detail-1',
         currency: 'TRY',
         fraudStatus: 1,
-        itemTransactions: [{ itemId: 'item-1', paidPrice: 1.2, paymentTransactionId: 'transaction-1', price: 1.2 }],
+        itemTransactions: [
+          {
+            itemId: 'item-1',
+            paidPrice: 1.2,
+            paymentTransactionId: 'transaction-1',
+            price: 1.2,
+          },
+        ],
         paidPrice: 1.2,
         paymentId: 'iyzico-payment-1',
         paymentStatus: 'SUCCESS',
+        price: 1.2,
+        signature: 'signature-1',
+        status: 'success',
+      }).success,
+    ).toBe(true);
+  });
+
+  it.each([
+    'BANK_FAIL',
+    'CALLBACK_THREEDS',
+    'FAILURE',
+    'INIT_THREEDS',
+    'PENDING_CREDIT',
+    'SUCCESS',
+  ])('accepts a retrieved payment with paymentStatus %s', (paymentStatus) => {
+    expect(
+      iyzicoPaymentDetailResponseSchema.safeParse({
+        basketId: 'basket-1',
+        conversationId: 'detail-1',
+        currency: 'TRY',
+        fraudStatus: 1,
+        itemTransactions: [
+          {
+            itemId: 'item-1',
+            paidPrice: 1.2,
+            paymentTransactionId: 'transaction-1',
+            price: 1.2,
+          },
+        ],
+        paidPrice: 1.2,
+        paymentId: 'iyzico-payment-1',
+        paymentStatus,
         price: 1.2,
         signature: 'signature-1',
         status: 'success',

@@ -14,9 +14,14 @@ const refundAction = {
 };
 
 function buildRefundController() {
-  const refund = jest.fn().mockResolvedValue({ outcome: PaymentModificationStatus.Approved });
+  const refund = jest
+    .fn()
+    .mockResolvedValue({ outcome: PaymentModificationStatus.Approved });
   return {
-    controller: new OperationsController(stub<IyzicoRecurringService>({}), stub<IyzicoRefundService>({ refund })),
+    controller: new OperationsController(
+      stub<IyzicoRecurringService>({}),
+      stub<IyzicoRefundService>({ refund }),
+    ),
     refund,
   };
 }
@@ -25,7 +30,9 @@ describe('OperationsController.modifyPayment', () => {
   it('hands a valid refund action to the refund service', async () => {
     const { controller, refund } = buildRefundController();
 
-    const response = await controller.modifyPayment('pay-1', { actions: [refundAction] });
+    const response = await controller.modifyPayment('pay-1', {
+      actions: [refundAction],
+    });
 
     expect(refund).toHaveBeenCalledWith('pay-1', refundAction);
     expect(response).toEqual({ outcome: PaymentModificationStatus.Approved });
@@ -34,23 +41,57 @@ describe('OperationsController.modifyPayment', () => {
   it.each([
     ['the body is not an object', 'nope'],
     ['no action is given', { actions: [] }],
-    ['more than one action is given', { actions: [refundAction, refundAction] }],
-    ['the action is not a refund', { actions: [{ ...refundAction, action: 'capturePayment' }] }],
+    [
+      'more than one action is given',
+      { actions: [refundAction, refundAction] },
+    ],
+    [
+      'the action is not a refund',
+      { actions: [{ ...refundAction, action: 'capturePayment' }] },
+    ],
     ['the amount is missing', { actions: [{ action: 'refundPayment' }] }],
-    ['the amount is not positive', { actions: [{ ...refundAction, amount: { centAmount: 0, currencyCode: 'TRY' } }] }],
+    [
+      'the amount is not positive',
+      {
+        actions: [
+          { ...refundAction, amount: { centAmount: 0, currencyCode: 'TRY' } },
+        ],
+      },
+    ],
     [
       'the currency is not a 3-letter code',
-      { actions: [{ ...refundAction, amount: { centAmount: 1, currencyCode: 'TRYY' } }] },
+      {
+        actions: [
+          { ...refundAction, amount: { centAmount: 1, currencyCode: 'TRYY' } },
+        ],
+      },
     ],
     [
       'the currency is not an uppercase ISO code',
-      { actions: [{ ...refundAction, amount: { centAmount: 1, currencyCode: 'try' } }] },
+      {
+        actions: [
+          { ...refundAction, amount: { centAmount: 1, currencyCode: 'try' } },
+        ],
+      },
     ],
-    ['the transaction id is empty', { actions: [{ ...refundAction, transactionId: '' }] }],
+    [
+      'the transaction id is empty',
+      { actions: [{ ...refundAction, transactionId: '' }] },
+    ],
+    [
+      'the merchant reference is missing',
+      { actions: [{ ...refundAction, merchantReference: undefined }] },
+    ],
+    [
+      'the merchant reference is empty',
+      { actions: [{ ...refundAction, merchantReference: '' }] },
+    ],
   ])('rejects the request when %s', async (_, body) => {
     const { controller, refund } = buildRefundController();
 
-    await expect(controller.modifyPayment('pay-1', body)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      controller.modifyPayment('pay-1', body),
+    ).rejects.toBeInstanceOf(BadRequestException);
     expect(refund).not.toHaveBeenCalled();
   });
 });

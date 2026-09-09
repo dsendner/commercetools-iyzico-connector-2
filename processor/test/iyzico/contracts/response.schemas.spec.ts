@@ -71,21 +71,29 @@ describe.each([
     expect(schema.safeParse(response).success).toBe(true);
   });
 
-  it.each(fields)('preserves %s as a string without modifying its value', (field) => {
-    const value = '  reference-with-leading-and-trailing-spaces  ';
-    const result = schema.parse({ ...response, [field]: value });
+  it.each(fields)(
+    'preserves %s as a string without modifying its value',
+    (field) => {
+      const value = '  reference-with-leading-and-trailing-spaces  ';
+      const result = schema.parse({ ...response, [field]: value });
 
-    expect(result).toHaveProperty(field, value);
-  });
+      expect(result).toHaveProperty(field, value);
+    },
+  );
 
-  it.each(fields)('rejects non-string values for %s instead of accepting them as unknown fields', (field) => {
-    for (const value of [123, false, null, {}, []]) {
-      const result = schema.safeParse({ ...response, [field]: value });
+  it.each(fields)(
+    'rejects non-string values for %s instead of accepting them as unknown fields',
+    (field) => {
+      for (const value of [123, false, null, {}, []]) {
+        const result = schema.safeParse({ ...response, [field]: value });
 
-      expect(result.success).toBe(false);
-      expect(result.error?.issues).toEqual(
-        expect.arrayContaining([expect.objectContaining({ code: 'invalid_type', path: [field] })]),
-      );
-    }
-  });
+        expect(result.success).toBe(false);
+        expect(result.error?.issues).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ code: 'invalid_type', path: [field] }),
+          ]),
+        );
+      }
+    },
+  );
 });

@@ -1,7 +1,11 @@
 import { z } from 'zod';
 
 import { iyzicoItemTransactionsSchema } from './item-transaction.schema';
-import { iyzicoDecimalSchema, iyzicoErrorCodeSchema, iyzicoIdentifierSchema } from './primitives.schema';
+import {
+  iyzicoDecimalSchema,
+  iyzicoErrorCodeSchema,
+  iyzicoIdentifierSchema,
+} from './primitives.schema';
 
 const decimalSchema = iyzicoDecimalSchema.pipe(z.number().nonnegative());
 
@@ -25,20 +29,29 @@ const paymentSuccessSchema = z.looseObject({
   status: z.literal('success'),
 });
 
-const createdPaymentSuccessSchema = paymentSuccessSchema.extend({ paymentStatus: z.null().optional() });
+const createdPaymentSuccessSchema = paymentSuccessSchema.extend({
+  paymentStatus: z.null().optional(),
+});
 const retrievedPaymentSuccessSchema = paymentSuccessSchema.extend({
-  paymentStatus: z.enum(['CALLBACK_THREEDS', 'FAILURE', 'INIT_THREEDS', 'SUCCESS']),
+  paymentStatus: z.enum([
+    'BANK_FAIL',
+    'CALLBACK_THREEDS',
+    'FAILURE',
+    'INIT_THREEDS',
+    'PENDING_CREDIT',
+    'SUCCESS',
+  ]),
 });
 
-export const iyzicoCreatedPaymentResponseSchema = z.discriminatedUnion('status', [
-  paymentFailureSchema,
-  createdPaymentSuccessSchema,
-]);
+export const iyzicoCreatedPaymentResponseSchema = z.discriminatedUnion(
+  'status',
+  [paymentFailureSchema, createdPaymentSuccessSchema],
+);
 
-export const iyzicoPaymentDetailResponseSchema = z.discriminatedUnion('status', [
-  paymentFailureSchema,
-  retrievedPaymentSuccessSchema,
-]);
+export const iyzicoPaymentDetailResponseSchema = z.discriminatedUnion(
+  'status',
+  [paymentFailureSchema, retrievedPaymentSuccessSchema],
+);
 
 const reportingRefundSchema = z.looseObject({
   currencyCode: z.enum(['CHF', 'EUR', 'GBP', 'NOK', 'TRY', 'USD']),
@@ -73,11 +86,13 @@ const reportingSuccessSchema = z.looseObject({
   status: z.literal('success'),
 });
 
-export const iyzicoPaymentReportResponseSchema = z.discriminatedUnion('status', [
-  reportingFailureSchema,
-  reportingSuccessSchema,
-]);
+export const iyzicoPaymentReportResponseSchema = z.discriminatedUnion(
+  'status',
+  [reportingFailureSchema, reportingSuccessSchema],
+);
 
 export type IyzicoCreatedPayment = z.infer<typeof createdPaymentSuccessSchema>;
 export type IyzicoPaymentReport = z.infer<typeof reportingSuccessSchema>;
-export type IyzicoRetrievedPayment = z.infer<typeof retrievedPaymentSuccessSchema>;
+export type IyzicoRetrievedPayment = z.infer<
+  typeof retrievedPaymentSuccessSchema
+>;

@@ -1,6 +1,9 @@
 import { z } from 'zod';
 
-import { iyzicoDecimalSchema, iyzicoIdentifierSchema } from './primitives.schema';
+import {
+  iyzicoDecimalSchema,
+  iyzicoIdentifierSchema,
+} from './primitives.schema';
 
 const iyzicoConvertedPayoutSchema = z.looseObject({
   blockageRateAmountMerchant: iyzicoDecimalSchema.optional(),
@@ -36,6 +39,8 @@ export const iyzicoItemTransactionSchema = z.looseObject({
   transactionStatus: z.number().int().optional(),
 });
 
-export const iyzicoItemTransactionsSchema = z.array(iyzicoItemTransactionSchema);
+export const iyzicoItemTransactionsSchema = z.array(
+  iyzicoItemTransactionSchema,
+);
 
 export type IyzicoItemTransaction = z.infer<typeof iyzicoItemTransactionSchema>;

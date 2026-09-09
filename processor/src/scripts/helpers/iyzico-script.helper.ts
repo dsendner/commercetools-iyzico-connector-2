@@ -35,9 +35,11 @@ type IyzicoClientSettings = Pick<
 
 export const iyzicoScriptEnvironmentSchema = z.object({
   IYZICO_API_KEY: z.string().min(1),
-  IYZICO_BASE_URL: z.url().refine((value) => new URL(value).origin === SANDBOX_ORIGIN, {
-    message: `must target ${SANDBOX_ORIGIN}`,
-  }),
+  IYZICO_BASE_URL: z
+    .url()
+    .refine((value) => new URL(value).origin === SANDBOX_ORIGIN, {
+      message: `must target ${SANDBOX_ORIGIN}`,
+    }),
   IYZICO_SECRET_KEY: z.string().min(1),
   IYZICO_TIMEOUT: z.coerce.number().int().positive().default(30000),
 });
@@ -56,10 +58,13 @@ export interface ScriptContext {
 export function buildScriptContext(): ScriptContext {
   const parsed = iyzicoScriptEnvironmentSchema.safeParse(process.env);
   if (!parsed.success) {
-    fail(`The sandbox environment configuration is invalid:\n${describeValidationIssues(parsed.error)}`);
+    fail(
+      `The sandbox environment configuration is invalid:\n${describeValidationIssues(parsed.error)}`,
+    );
   }
 
-  const { IYZICO_API_KEY, IYZICO_BASE_URL, IYZICO_SECRET_KEY, IYZICO_TIMEOUT } = parsed.data;
+  const { IYZICO_API_KEY, IYZICO_BASE_URL, IYZICO_SECRET_KEY, IYZICO_TIMEOUT } =
+    parsed.data;
   // The script loads only the Iyzico settings, so it cannot build the application
   // configuration service, which validates the whole environment. It hands the client a
   // reader restricted to the keys the client actually consumes.
@@ -70,7 +75,9 @@ export function buildScriptContext(): ScriptContext {
     IYZICO_TIMEOUT,
   };
   const config = {
-    get: <K extends keyof IyzicoClientSettings>(key: K): IyzicoClientSettings[K] => settings[key],
+    get: <K extends keyof IyzicoClientSettings>(
+      key: K,
+    ): IyzicoClientSettings[K] => settings[key],
   } as unknown as AppConfigService;
 
   const signatureService = new IyzicoSignatureService();
@@ -78,8 +85,16 @@ export function buildScriptContext(): ScriptContext {
   return {
     baseUrl: IYZICO_BASE_URL,
     client: new IyzicoClient(config, signatureService),
-    async get<T>(path: string, parameters: Record<string, number | string>): Promise<T> {
-      const headers = signatureService.buildAuthHeader(IYZICO_API_KEY, IYZICO_SECRET_KEY, path, '{}');
+    async get<T>(
+      path: string,
+      parameters: Record<string, number | string>,
+    ): Promise<T> {
+      const headers = signatureService.buildAuthHeader(
+        IYZICO_API_KEY,
+        IYZICO_SECRET_KEY,
+        path,
+        '{}',
+      );
       const response = await axios.get<T>(`${IYZICO_BASE_URL}${path}`, {
         data: {},
         headers: { ...headers, 'Content-Type': 'application/json' },
@@ -100,17 +115,24 @@ export function describeError(error: unknown): string {
     const status = error.response?.status ?? 'no response';
     const parsed = iyzicoErrorResponseSchema.safeParse(error.response?.data);
     if (parsed.success) {
-      const code = parsed.data.errorCode === undefined ? '-' : String(parsed.data.errorCode);
+      const code =
+        parsed.data.errorCode === undefined
+          ? '-'
+          : String(parsed.data.errorCode);
       return `HTTP ${status} — [${code}] ${parsed.data.errorMessage ?? error.message}`;
     }
     return `HTTP ${status} — ${error.code ?? error.message}`;
   }
 
-  return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+  return error instanceof Error
+    ? `${error.name}: ${error.message}`
+    : String(error);
 }
 
 export function describeValidationIssues(error: z.ZodError): string {
-  return error.issues.map((issue) => `   ${issue.path.join('.') || '(root)'}: ${issue.message}`).join('\n');
+  return error.issues
+    .map((issue) => `   ${issue.path.join('.') || '(root)'}: ${issue.message}`)
+    .join('\n');
 }
 
 export function fail(message: string): never {
@@ -118,7 +140,10 @@ export function fail(message: string): never {
   process.exit(1);
 }
 
-export function isMatchingSandboxPaymentPageUrl(value: string, token: string): boolean {
+export function isMatchingSandboxPaymentPageUrl(
+  value: string,
+  token: string,
+): boolean {
   const url = new URL(value);
   return (
     url.protocol === 'https:' &&

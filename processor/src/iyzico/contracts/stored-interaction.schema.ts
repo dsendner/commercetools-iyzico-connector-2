@@ -1,6 +1,9 @@
 import { z } from 'zod';
 
-import { IyzicoItemTransaction, iyzicoItemTransactionsSchema } from './item-transaction.schema';
+import {
+  IyzicoItemTransaction,
+  iyzicoItemTransactionsSchema,
+} from './item-transaction.schema';
 import { iyzicoIdentifierSchema } from './primitives.schema';
 
 export const storedIyzicoPaymentInteractionSchema = z.looseObject({
@@ -16,10 +19,12 @@ export const storedIyzicoRefundInteractionSchema = z.looseObject({
 export function toStoredItemTransactions(
   items: IyzicoItemTransaction[] | undefined,
 ): IyzicoItemTransaction[] {
-  return iyzicoItemTransactionsSchema.parse(items ?? []).map(({ itemId, paidPrice, paymentTransactionId, price }) => ({
-    itemId,
-    paidPrice,
-    paymentTransactionId,
-    price,
-  }));
+  return iyzicoItemTransactionsSchema
+    .parse(items ?? [])
+    .map(({ itemId, paidPrice, paymentTransactionId, price }) => ({
+      itemId,
+      paidPrice,
+      paymentTransactionId,
+      price,
+    }));
 }

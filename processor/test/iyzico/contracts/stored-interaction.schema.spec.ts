@@ -2,7 +2,9 @@ import { storedIyzicoPaymentInteractionSchema } from '../../../src/iyzico/contra
 
 describe('storedIyzicoPaymentInteractionSchema', () => {
   it('rejects stored payment interactions without refundable item references', () => {
-    const result = storedIyzicoPaymentInteractionSchema.safeParse({ itemTransactions: [] });
+    const result = storedIyzicoPaymentInteractionSchema.safeParse({
+      itemTransactions: [],
+    });
 
     expect(result.success).toBe(false);
   });

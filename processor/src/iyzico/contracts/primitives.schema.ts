@@ -7,7 +7,9 @@ const iyzicoDecimalStringSchema = z
   .trim()
   .min(1)
   .max(64)
-  .refine((value) => [...value].every((character) => decimalCharacters.has(character)))
+  .refine((value) =>
+    [...value].every((character) => decimalCharacters.has(character)),
+  )
   .refine((value) => Number.isFinite(Number(value)));
 
 /** Iyzico returns monetary amounts either as numbers or as decimal strings. */
