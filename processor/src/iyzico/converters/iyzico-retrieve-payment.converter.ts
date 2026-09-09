@@ -1,3 +1,5 @@
+import { IyzicoItemTransaction } from '../contracts/item-transaction.schema';
+
 export type PaymentOutcome = 'Success' | 'Failure' | 'Pending';
 
 export type IyzicoPaymentStatus =
@@ -13,6 +15,7 @@ export type FraudDecision = 'approved' | 'review' | 'rejected';
 export interface IyzicoRetrieveResponse {
     status: 'Success' | 'Failure';
     conversationId: string;
+    itemTransactions?: IyzicoItemTransaction[];
     paymentStatus?: IyzicoPaymentStatus;
     fraudStatus?: number;
     paymentId?: string;
@@ -41,6 +44,7 @@ export interface IyzicoRetrieveResponse {
 }
 
 export interface IyzicoPaymentResult {
+    itemTransactions?: IyzicoItemTransaction[];
     outcome: PaymentOutcome;
     fraudDecision: FraudDecision;
     isFraud: boolean;
@@ -114,5 +118,6 @@ export function toIyzicoPaymentResult(res: IyzicoRetrieveResponse): IyzicoPaymen
         errorMessage: res.errorMessage,
         installment: res.installment,
         conversationId: res.conversationId,
+        itemTransactions: res.itemTransactions,
     };
 }

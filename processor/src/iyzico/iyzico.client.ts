@@ -49,6 +49,14 @@ export class IyzicoClient {
         return request;
     }
 
+    verifyResponseSignature(parameters: Array<number | string | undefined>, signature: string | undefined): boolean {
+        return this.authSignature.verifyResponseSignature(
+            this.config.get('IYZICO_SECRET_KEY'),
+            parameters,
+            signature,
+        );
+    }
+
     verifyWebhookSignature(payload: IyzicoWebhookPayload, signature: string) {
         return this.authSignature.verifyWebhookSignature(
             this.config.get('IYZICO_SECRET_KEY'),

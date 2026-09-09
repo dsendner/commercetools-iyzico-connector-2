@@ -1,6 +1,8 @@
-import { Body, Controller, Get, HttpCode, NotImplementedException, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, HttpCode, Param, Post, Req, UseGuards } from '@nestjs/common';
 import type { TransactionDraft, TransactionResponse } from './transaction.dto';
 import { StatusResponseSchemaDTO } from './status.dto';
+import { PaymentIntentResponse, paymentIntentRequestSchema } from './payment-intents.dto';
+import { IyzicoRefundService } from '../iyzico/iyzico-refund.service';
 import { IyzicoRecurringService } from '../iyzico/iyzico-recurring.service';
 import { JwtAuthGuard } from '../commercetools/guards/jwt-auth.guard';
 import { OAuth2AuthGuard } from '../commercetools/guards/oauth2-auth.guard';
@@ -16,7 +18,10 @@ type AuthedRequest = Request & {
 @Controller('operations')
 export class OperationsController {
 
-    constructor(private readonly iyzicoRecurringService: IyzicoRecurringService) { }
+    constructor(
+        private readonly iyzicoRecurringService: IyzicoRecurringService,
+        private readonly iyzicoRefundService: IyzicoRefundService,
+    ) { }
 
     @Get('status')
     @UseGuards(JwtAuthGuard)
@@ -35,13 +40,18 @@ export class OperationsController {
         };
     }
 
-    // CT Checkout contract stub, Iyzico is direct charge only
+    // Iyzico is a direct charge, so refundPayment is the only supported action
     @Post('payment-intents/:id')
     @HttpCode(200)
     @UseGuards(OAuth2AuthGuard, AuthorityAuthGuard)
     @RequiredScopes('manage_project', 'manage_checkout_payment_intents')
-    async modifyPayment(@Param('id') id: string) {
-        throw new NotImplementedException('Not supported by Iyzico connector');
+    async modifyPayment(@Param('id') id: string, @Body() body: unknown): Promise<PaymentIntentResponse> {
+        const parsed = paymentIntentRequestSchema.safeParse(body);
+        if (!parsed.success) {
+            throw new BadRequestException('A single refundPayment action with a valid amount is required');
+        }
+
+        return this.iyzicoRefundService.refund(id, parsed.data.actions[0]);
     }
 
     @Get('payment-components')
