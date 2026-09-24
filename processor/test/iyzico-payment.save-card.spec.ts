@@ -88,7 +88,7 @@ describe('card storage — save on confirm', () => {
                 customerId: 'cust-1',
                 paymentInterface: 'iyzico',
                 method: 'MASTER_CARD',
-                token: 'user-key-1::card-tok-1',
+                token: 'card-tok-1::user-key-1',
             }),
         );
 
@@ -161,8 +161,8 @@ describe('card storage — init passes the existing cardUserKey', () => {
         const { client, captured } = buildTestClient([initResponse]);
 
         const existing = {
-            token: { value: 'user-key-1::card-tok-1' },
-            customFields: { fields: { token: 'user-key-1::card-tok-1' } },
+            token: { value: 'card-tok-1::user-key-1' },
+            customFields: { fields: { token: 'card-tok-1::user-key-1' } },
         } as any;
 
         const cartWithCustomer = makeCartWithLineItem({ customerId: 'cust-1' });

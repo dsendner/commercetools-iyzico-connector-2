@@ -47,11 +47,11 @@ export function toSavedCard(paymentResult: any): SavedCard | undefined {
 }
 
 export function packCardToken(cardUserKey: string, cardToken: string): string {
-    return `${cardUserKey}::${cardToken}`;
+    return `${cardToken}::${cardUserKey}`;
 }
 
 export function unpackCardToken(packed: string): { cardUserKey: string; cardToken: string } {
-    const [cardUserKey, cardToken] = packed.split('::');
+    const [cardToken, cardUserKey] = packed.split('::');
     if (!cardUserKey || !cardToken) {
         throw new Error('Malformed stored card token');
     }
