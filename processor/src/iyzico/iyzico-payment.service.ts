@@ -22,7 +22,7 @@ export interface CreateSessionResponse {
     paymentPageUrl: string;
 }
 
-type FlowEndpoints = { init: string; retrieve: string; retrieveTokenField: 'token' | 'checkoutFormToken' };
+type FlowEndpoints = { init: string; retrieve: string; retrieveTokenField: 'token' | 'checkoutFormToken', enabledInstallments?: number[] };
 
 const STANDARD: FlowEndpoints = {
     init: '/payment/iyzipos/checkoutform/initialize/auth/ecom',
@@ -34,6 +34,7 @@ const SUBSCRIPTION: FlowEndpoints = {
     init: '/v1/pay-with-iyzico/third-party-session/checkout/init',
     retrieve: '/v1/pay-with-iyzico/third-party-session/retrieve/payment',
     retrieveTokenField: 'checkoutFormToken',
+    enabledInstallments: [1],
 };
 
 const LOCALE = 'tr';
@@ -126,7 +127,7 @@ export class IyzicoPaymentService {
             : undefined;
 
         const request = toIyzicoInitializeRequest(
-            cart, payment, callbackUrl, clientIp, cardUserKey, this.conversationIdFor(payment),
+            cart, payment, callbackUrl, clientIp, cardUserKey, this.conversationIdFor(payment), flow.enabledInstallments
         );
 
         const response = await this.iyzico.post<IyzicoInitializeResponse>(flow.init, request);

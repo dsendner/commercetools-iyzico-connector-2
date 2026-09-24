@@ -38,7 +38,8 @@ export function toIyzicoInitializeRequest(
   callbackUrl: string,
   clientIp: string,
   cardUserKey: string | undefined,
-  conversationId: string
+  conversationId: string,
+  enabledInstallments?: number[],
 ): IyzicoInitializeRequest {
   const basketItems = mapBasketItems(cart);
   
@@ -62,6 +63,7 @@ export function toIyzicoInitializeRequest(
     paymentGroup: 'PRODUCT',
     callbackUrl,
     cardUserKey,
+    enabledInstallments,
     buyer: mapBuyer(cart, clientIp),
     billingAddress: mapAddress(cart.billingAddress),
     shippingAddress: mapAddress(cart.shippingAddress ?? cart.billingAddress),
