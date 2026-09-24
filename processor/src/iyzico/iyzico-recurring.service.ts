@@ -10,7 +10,10 @@ import { IyzicoNon3dsResponse, toIyzicoNon3dsRequest } from "./converters/iyzico
 const NON_3DS_PAYMENT_ENDPOINT = '/payment/auth';
 
 
-const toMoney = (m: connectPaymentsSdk.Money): connectPaymentsSdk.Money => ({ centAmount: m.centAmount, currencyCode: m.currencyCode });
+const toMoney = (m: connectPaymentsSdk.Money): connectPaymentsSdk.Money => ({
+    centAmount: Math.round(Number(m.centAmount)),
+    currencyCode: String(m.currencyCode).toUpperCase(),
+});
 
 
 @Injectable()
@@ -25,7 +28,13 @@ export class IyzicoRecurringService {
     ) { }
 
     async handleTransaction(draft: TransactionDraft, cart: connectPaymentsSdk.Cart): Promise<TransactionResponse> {
-        const amount = draft.transactionItems[0].amount;
+        const rawAmount = draft.transactionItems?.[0]?.amount;
+        if (!rawAmount || !Number.isFinite(Number(rawAmount.centAmount)) || !rawAmount.currencyCode) {
+            throw new BadRequestException(
+                `Transaction ${draft.key} has no valid amount: ${JSON.stringify(rawAmount)}`,
+            );
+        }
+        const amount = toMoney(rawAmount);
 
         const paymentMethod = await this.resolvePaymentMethod(cart);
         const { cardUserKey, cardToken } = unpackCardToken(paymentMethod.token!.value);
