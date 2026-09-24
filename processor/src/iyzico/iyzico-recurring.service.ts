@@ -37,12 +37,15 @@ export class IyzicoRecurringService {
         const amount = toMoney(rawAmount);
 
         const paymentMethod = await this.resolvePaymentMethod(cart);
-        const { cardUserKey, cardToken } = unpackCardToken(paymentMethod.token!.value);
+        const { cardToken, cardUserKey} = unpackCardToken(paymentMethod.token!.value);
 
         const payment = await this.ctPayment.createPayment({
             amountPlanned: amount,
             paymentMethodInfo: { paymentInterface: 'iyzico' },
         });
+
+        const freshCart = await this.ctCart.getCart({ id: cart.id });
+        await this.ctCart.addPayment({ resource: freshCart, paymentId: payment.id });
 
         await this.ctPayment.updatePayment({
             id: payment.id,
