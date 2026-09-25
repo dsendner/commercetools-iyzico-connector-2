@@ -59,7 +59,7 @@ describe('IyzicoPaymentService.handleCallback', () => {
         );
 
         const url = new URL(redirectUrl);
-        expect(url.searchParams.get('paymentReference')).toBe('p-1');
+        expect(url.searchParams.get('paymentId')).toBe('p-1');
     });
 
 
@@ -114,6 +114,30 @@ describe('IyzicoPaymentService.handleCallback', () => {
         expect(ct.payment.updatePayment).not.toHaveBeenCalled();
 
         const url = new URL(redirectUrl);
-        expect(url.searchParams.get('paymentReference')).toBe('p-3');
+        expect(url.searchParams.get('paymentId')).toBe('p-3');
+    });
+
+    it('leaves the payment unsettled when Iyzico has no payment yet for the token (5122)', async () => {
+        const payment = makePayment({ id: 'p-4' });
+        const cart = makeCart({ id: 'c-4' });
+
+        ct.payment.findPaymentsByInterfaceId.mockResolvedValue([payment]);
+        ct.cart.getCartByPaymentId.mockResolvedValue(cart);
+        iyzico.client.post.mockResolvedValue({
+            status: 'failure',
+            errorCode: '5122',
+            errorMessage: 'Gönderilen tokena ait ödeme bilgisi bulunamadı',
+        });
+
+        const redirectUrl = await service.handleCallback({
+            token: 'iyzico-token-4',
+            returnUrl: 'https://bff.example/callback',
+        });
+
+        expect(ct.payment.updatePayment).not.toHaveBeenCalled();
+        expect(iyzico.cardService.saveCard).not.toHaveBeenCalled();
+
+        const url = new URL(redirectUrl);
+        expect(url.searchParams.get('paymentId')).toBe('p-4');
     });
 });
