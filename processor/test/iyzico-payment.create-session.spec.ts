@@ -23,7 +23,7 @@ describe('IyzicoPaymentService.createSession (service + converter + client)', ()
 
   it('reads the cart, creates a payment, calls Iyzico, stores the token, returns the reference', async () => {
     const initResponse = {
-      status: 'Success',
+      status: 'success',
       conversationId: 'pay-1',
       token: 'tok-xyz',
       checkoutFormContent: '<script>iyzicoForm</script>',
@@ -96,7 +96,7 @@ describe('IyzicoPaymentService.createSession (service + converter + client)', ()
   it('throws 500 and does NOT store a token when Iyzico rejects the init', async () => {
     const { client } = buildTestClient([
       {
-        status: 'Failure',
+        status: 'failure',
         errorCode: '50001',
         errorMessage: 'Request message is not readable',
         conversationId: 'pay-1',
@@ -117,7 +117,7 @@ describe('IyzicoPaymentService.createSession (service + converter + client)', ()
 
   it('sends price (sum of items) and paidPrice (actual payable amount) separately to handle discounts', async () => {
     const initResponse = {
-      status: 'Success',
+      status: 'success',
       conversationId: 'pay-1',
       token: 'tok-xyz',
       checkoutFormContent: '<script>iyzicoForm</script>',
