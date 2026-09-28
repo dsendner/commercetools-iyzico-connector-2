@@ -55,7 +55,7 @@ export class IyzicoRecurringService {
         try {
             const response = await this.iyzico.post<IyzicoNon3dsResponse>(
                 NON_3DS_PAYMENT_ENDPOINT,
-                toIyzicoNon3dsRequest(cart, payment, amount, cardUserKey, cardToken),
+                toIyzicoNon3dsRequest(cart, payment, amount, cardToken, cardUserKey),
             );
 
             const isSuccess = response.status === 'success'

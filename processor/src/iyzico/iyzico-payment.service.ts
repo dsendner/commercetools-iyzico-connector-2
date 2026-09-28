@@ -9,6 +9,7 @@ import { IyzicoCardService } from './iyzico-card.service';
 import { CT_CART_SERVICE, CT_PAYMENT_SERVICE } from '../commercetools/tokens';
 import { AppConfigService } from '../config/config.service';
 import { getRequestContext } from '../commercetools/context/request-context';
+import { isSameIyzicoDay, IyzicoRefundResponse, toIyzicoCancelRequest, toIyzicoRefundRequest } from './converters/iyzico-refund.converter';
 
 export interface CreateSessionRequest {
     cartId: string;
@@ -39,11 +40,20 @@ const SUBSCRIPTION: FlowEndpoints = {
 
 const LOCALE = 'tr';
 
+const REFUND_V2 = '/v2/payment/refund';
+const CANCEL = '/payment/cancel';
+
+type ReversalOperation = 'cancel' | 'refund';
+
 const TRANSACTION_BY_OUTCOME: Record<IyzicoPaymentResult['outcome'], { type: string; state: string }> = {
     Success: { type: 'Charge', state: 'Success' },
     Failure: { type: 'Charge', state: 'Failure' },
     Pending: { type: 'Charge', state: 'Pending' },
 };
+
+const SWITCH_CARD_SUBSCRIPTION_KEY_FIELD = 'subscription_key';
+
+const IYZICO_NO_PAYMENT_FOR_TOKEN = '5122';
 
 function toMoney(m: connectPaymentsSdk.Money): connectPaymentsSdk.Money {
     return { centAmount: m.centAmount, currencyCode: m.currencyCode };
@@ -132,7 +142,7 @@ export class IyzicoPaymentService {
 
         const response = await this.iyzico.post<IyzicoInitializeResponse>(flow.init, request);
 
-        if (response.status === 'Failure') {
+        if (response.status !== 'success' || !response.token) {
             this.logger.error(`Iyzico init failed on ${flow.init}: [${response.errorCode}] ${response.errorMessage}`);
             throw new InternalServerErrorException('Could not start the checkout init payment');
         }
@@ -199,18 +209,28 @@ export class IyzicoPaymentService {
         }
         const flow = this.flowFor(cart);
         const retrieve = await this.retrieveIyzicoPayment(payment, token, flow);
-        const result = toIyzicoPaymentResult(retrieve);
 
-        await this.recordPaymentOnCommercetools(payment, result, token);
-
-        if (result.outcome === 'Success') {
-            if (result.cardUserKey && result.cardToken) {
-                await this.storeCard(payment, cart, result);
-            }
-
+        if (retrieve.errorCode === IYZICO_NO_PAYMENT_FOR_TOKEN) {
+            this.logger.warn(`No Iyzico payment yet for token ${token} on payment ${payment.id}, left unsettled`);
+            return {
+                outcome: 'Pending',
+                fraudDecision: 'approved',
+                isFraud: false,
+                iyzicoPaymentId: payment.id,
+                errorCode: retrieve.errorCode,
+                errorMessage: retrieve.errorMessage,
+            };
         }
 
+        const result = toIyzicoPaymentResult(retrieve);
 
+        const cardId = result.outcome === 'Success' ? await this.storeCard(payment, cart, result) : undefined;
+
+        await this.recordPaymentOnCommercetools(payment, result, token, cardId);
+
+        if (result.outcome === 'Success' && this.isSwitchCardCart(cart)) {
+            await this.reverseSwitchCardPayment(payment, result);
+        }
 
         return result;
     }
@@ -219,15 +239,15 @@ export class IyzicoPaymentService {
         payment: connectPaymentsSdk.Payment,
         cart: connectPaymentsSdk.Cart,
         result: IyzicoPaymentResult,
-    ): Promise<void> {
+    ): Promise<string | undefined> {
         if (!cart.customerId) {
             this.logger.warn(`Card storage skipped: guest cart on payment ${payment.id}`);
-            return;
+            return undefined;
         }
 
         if (!result.cardUserKey || !result.cardToken) {
             this.logger.warn(`No card token on payment ${payment.id} — nothing to store`);
-            return;
+            return undefined;
         }
 
         try {
@@ -239,15 +259,119 @@ export class IyzicoPaymentService {
                 bin: result.binNumber,
             });
 
-            await this.ctPayment.updatePayment({
-                id: payment.id,
-                customFieldValues: { cardId: saved.id },
-            });
-
             this.logger.log(`Card stored as PaymentMethod ${saved.id} for customer ${cart.customerId}`);
+            return saved.id;
         } catch (error) {
             this.logger.error(`Could not save card for payment ${payment.id}: ${error}`);
+            return undefined;
         }
+    }
+    private async reverseSwitchCardPayment(
+        payment: connectPaymentsSdk.Payment,
+        result: IyzicoPaymentResult,
+    ): Promise<void> {
+        const amount = toMoney(payment.amountPlanned);
+
+        if (!result.iyzicoPaymentId) {
+            this.logger.error(`Switch card reversal skipped: no Iyzico paymentId on payment ${payment.id}, needs a manual refund`);
+            await this.recordReversalOnCommercetools(payment, amount, 'refund', {
+                status: 'failure',
+                errorMessage: 'Missing Iyzico paymentId',
+            });
+            return;
+        }
+
+        const conversationId = result.conversationId ?? this.conversationIdFor(payment);
+
+        if (isSameIyzicoDay(new Date(payment.createdAt), new Date())) {
+            const cancel = await this.callReversal(
+                payment,
+                'cancel',
+                CANCEL,
+                toIyzicoCancelRequest(result.iyzicoPaymentId, conversationId, LOCALE),
+            );
+
+            if (cancel.status === 'success') {
+                this.logger.log(`Switch card payment ${payment.id} cancelled on Iyzico payment ${result.iyzicoPaymentId}`);
+                await this.recordReversalOnCommercetools(payment, amount, 'cancel', cancel);
+                return;
+            }
+
+            this.logger.warn(
+                `Iyzico refused to cancel the switch card payment ${payment.id}, falling back to a refund: [${cancel.errorCode}] ${cancel.errorMessage}`,
+            );
+        }
+
+        const refund = await this.callReversal(
+            payment,
+            'refund',
+            REFUND_V2,
+            toIyzicoRefundRequest(result.iyzicoPaymentId, payment.amountPlanned, conversationId, LOCALE),
+        );
+
+        if (refund.status === 'success') {
+            this.logger.log(`Switch card payment ${payment.id} refunded on Iyzico payment ${result.iyzicoPaymentId}`);
+        } else {
+            this.logger.error(
+                `Iyzico refused the switch card refund for payment ${payment.id}, needs a manual refund: [${refund.errorCode}] ${refund.errorMessage}`,
+            );
+        }
+
+        await this.recordReversalOnCommercetools(payment, amount, 'refund', refund);
+    }
+
+    private async callReversal(
+        payment: connectPaymentsSdk.Payment,
+        operation: ReversalOperation,
+        path: string,
+        request: object,
+    ): Promise<IyzicoRefundResponse> {
+        try {
+            return await this.iyzico.post<IyzicoRefundResponse>(path, request);
+        } catch (error) {
+            this.logger.error(`Switch card ${operation} call failed for payment ${payment.id}: ${error}`);
+            return { status: 'failure', errorMessage: String(error) };
+        }
+    }
+
+    private async recordReversalOnCommercetools(
+        payment: connectPaymentsSdk.Payment,
+        amount: connectPaymentsSdk.Money,
+        operation: ReversalOperation,
+        response: IyzicoRefundResponse,
+    ): Promise<void> {
+        const state = response.status === 'success' ? 'Success' : 'Failure';
+        const interactionId = response.cancelHostReference ?? response.refundHostReference ?? response.paymentId ?? payment.id;
+
+        await this.ctPayment.updatePayment({
+            id: payment.id,
+            transaction: {
+                type: 'Refund',
+                state,
+                amount,
+                interactionId,
+            },
+            pspInteractions: [
+                connectPaymentsSdk.GenerateInterfaceInteractionCustomFieldsDraft({
+                    interactionId,
+                    createdAt: new Date().toISOString(),
+                    type: `iyzico-${operation}-${state.toLowerCase()}`,
+                    response: JSON.stringify({
+                        status: response.status,
+                        paymentId: response.paymentId,
+                        price: response.price,
+                        currency: response.currency,
+                        cancelHostReference: response.cancelHostReference,
+                        refundHostReference: response.refundHostReference,
+                        retryable: response.retryable,
+                        errorCode: response.errorCode,
+                        errorMessage: response.errorMessage,
+                    }),
+                }),
+            ],
+        }).catch((error) => {
+            this.logger.error(`Could not record the switch card ${operation} on payment ${payment.id}: ${error}`);
+        });
     }
 
     private async retrieveIyzicoPayment(
@@ -271,6 +395,7 @@ export class IyzicoPaymentService {
         payment: connectPaymentsSdk.Payment,
         result: IyzicoPaymentResult,
         token: string,
+        cardId?: string,
     ): Promise<void> {
         const { type, state } = TRANSACTION_BY_OUTCOME[result.outcome];
 
@@ -292,7 +417,8 @@ export class IyzicoPaymentService {
                     binNumber: result.binNumber,
                     lastFourDigits: result.lastFourDigits,
                     installments: result.installment,
-                    conversationId: result.conversationId
+                    conversationId: result.conversationId,
+                    ...(cardId ? { cardId } : {}),
                 },
             },
             pspInteractions: [
@@ -327,6 +453,12 @@ export class IyzicoPaymentService {
 
         this.logger.log(`Cart ${cart.id}: ${withCode.length}/${cart.lineItems.length} lineItems with ${field}`);
         return withCode.length > 0;
+    }
+
+    private isSwitchCardCart(cart: connectPaymentsSdk.Cart): boolean {
+        if (Number(cart.custom?.fields?.orderTimes) > 1) return false;
+
+        return cart.lineItems.some(li => li.custom?.fields?.[SWITCH_CARD_SUBSCRIPTION_KEY_FIELD] != null);
     }
 
     private flowFor(cart: connectPaymentsSdk.Cart): FlowEndpoints {

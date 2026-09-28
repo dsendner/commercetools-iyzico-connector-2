@@ -19,7 +19,7 @@ export interface IyzicoInitializeRequest {
 }
 
 export interface IyzicoInitializeResponse {
-  status: 'Success' | 'Failure';
+  status: 'success' | 'failure';
   errorCode?: string;
   errorMessage?: string;
   locale?: string;
