@@ -91,7 +91,14 @@ describe('IyzicoPaymentService switch card', () => {
         });
 
         expect(ct.payment.updatePayment).toHaveBeenCalledWith(
-            expect.objectContaining({ id: 'p-1', customFieldValues: { cardId: 'pm-1' } }),
+            expect.objectContaining({
+                id: 'p-1',
+                transaction: expect.objectContaining({ type: 'Charge', state: 'Success' }),
+                customFields: expect.objectContaining({ fields: expect.objectContaining({ cardId: 'pm-1' }) }),
+            }),
+        );
+        expect(ct.payment.updatePayment).not.toHaveBeenCalledWith(
+            expect.objectContaining({ customFieldValues: expect.anything() }),
         );
         expect(ct.payment.updatePayment).toHaveBeenCalledWith(
             expect.objectContaining({

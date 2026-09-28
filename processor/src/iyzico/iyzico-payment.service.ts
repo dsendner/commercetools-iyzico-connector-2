@@ -224,19 +224,13 @@ export class IyzicoPaymentService {
 
         const result = toIyzicoPaymentResult(retrieve);
 
-        await this.recordPaymentOnCommercetools(payment, result, token);
+        const cardId = result.outcome === 'Success' ? await this.storeCard(payment, cart, result) : undefined;
 
-        if (result.outcome === 'Success') {
-            if (result.cardUserKey && result.cardToken) {
-                await this.storeCard(payment, cart, result);
-            }
+        await this.recordPaymentOnCommercetools(payment, result, token, cardId);
 
-            if (this.isSwitchCardCart(cart)) {
-                await this.reverseSwitchCardPayment(payment, result);
-            }
+        if (result.outcome === 'Success' && this.isSwitchCardCart(cart)) {
+            await this.reverseSwitchCardPayment(payment, result);
         }
-
-
 
         return result;
     }
@@ -245,15 +239,15 @@ export class IyzicoPaymentService {
         payment: connectPaymentsSdk.Payment,
         cart: connectPaymentsSdk.Cart,
         result: IyzicoPaymentResult,
-    ): Promise<void> {
+    ): Promise<string | undefined> {
         if (!cart.customerId) {
             this.logger.warn(`Card storage skipped: guest cart on payment ${payment.id}`);
-            return;
+            return undefined;
         }
 
         if (!result.cardUserKey || !result.cardToken) {
             this.logger.warn(`No card token on payment ${payment.id} — nothing to store`);
-            return;
+            return undefined;
         }
 
         try {
@@ -265,14 +259,11 @@ export class IyzicoPaymentService {
                 bin: result.binNumber,
             });
 
-            await this.ctPayment.updatePayment({
-                id: payment.id,
-                customFieldValues: { cardId: saved.id },
-            });
-
             this.logger.log(`Card stored as PaymentMethod ${saved.id} for customer ${cart.customerId}`);
+            return saved.id;
         } catch (error) {
             this.logger.error(`Could not save card for payment ${payment.id}: ${error}`);
+            return undefined;
         }
     }
     private async reverseSwitchCardPayment(
@@ -404,6 +395,7 @@ export class IyzicoPaymentService {
         payment: connectPaymentsSdk.Payment,
         result: IyzicoPaymentResult,
         token: string,
+        cardId?: string,
     ): Promise<void> {
         const { type, state } = TRANSACTION_BY_OUTCOME[result.outcome];
 
@@ -425,7 +417,8 @@ export class IyzicoPaymentService {
                     binNumber: result.binNumber,
                     lastFourDigits: result.lastFourDigits,
                     installments: result.installment,
-                    conversationId: result.conversationId
+                    conversationId: result.conversationId,
+                    ...(cardId ? { cardId } : {}),
                 },
             },
             pspInteractions: [
