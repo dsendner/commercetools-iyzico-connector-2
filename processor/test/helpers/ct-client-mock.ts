@@ -40,6 +40,7 @@ export function makeIyzicoMock(): MockedIyzico {
     return {
         client: {
             post: jest.fn(),
+            verifyResponseSignature: jest.fn().mockReturnValue(true),
             verifyWebhookSignature: jest.fn().mockReturnValue(true),
         } as any,
         cardService: {

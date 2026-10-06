@@ -49,6 +49,19 @@ export class IyzicoSignatureService {
         };
     }
 
+    verifyResponseSignature(
+        secretKey: string,
+        parameters: Array<number | string | undefined>,
+        signature: string | undefined,
+    ): boolean {
+        const computedSignature = createHmac('sha256', secretKey)
+            .update(parameters.map((parameter) => parameter ?? '').join(':'), 'utf8')
+            .digest('hex');
+        const computed = Buffer.from(computedSignature, 'utf8');
+        const expected = Buffer.from(signature ?? '', 'utf8');
+        return computed.length === expected.length && timingSafeEqual(computed, expected);
+    }
+
     verifyWebhookSignature(secretKey: string, payload: IyzicoWebhookPayload, signature: string | undefined): boolean {
         const computedSignature = this.computeWebhookSignature(
             secretKey,
