@@ -1,5 +1,7 @@
-import { Body, Controller, Get, HttpCode, NotImplementedException, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Post, Req, UseGuards } from '@nestjs/common';
 import type { TransactionDraft, TransactionResponse } from './transaction.dto';
+import type { PaymentIntentRequest, PaymentIntentResponse } from './payment-intent.dto';
+import { OperationsService } from './operations.service';
 import { StatusResponseSchemaDTO } from './status.dto';
 import { IyzicoRecurringService } from '../iyzico/iyzico-recurring.service';
 import { JwtAuthGuard } from '../commercetools/guards/jwt-auth.guard';
@@ -16,7 +18,10 @@ type AuthedRequest = Request & {
 @Controller('operations')
 export class OperationsController {
 
-    constructor(private readonly iyzicoRecurringService: IyzicoRecurringService) { }
+    constructor(
+        private readonly iyzicoRecurringService: IyzicoRecurringService,
+        private readonly operationsService: OperationsService,
+    ) { }
 
     @Get('status')
     @UseGuards(JwtAuthGuard)
@@ -35,13 +40,15 @@ export class OperationsController {
         };
     }
 
-    // CT Checkout contract stub, Iyzico is direct charge only
     @Post('payment-intents/:id')
     @HttpCode(200)
     @UseGuards(OAuth2AuthGuard, AuthorityAuthGuard)
     @RequiredScopes('manage_project', 'manage_checkout_payment_intents')
-    async modifyPayment(@Param('id') id: string) {
-        throw new NotImplementedException('Not supported by Iyzico connector');
+    async modifyPayment(
+        @Param('id') id: string,
+        @Body() body: PaymentIntentRequest,
+    ): Promise<PaymentIntentResponse> {
+        return this.operationsService.modifyPayment(id, body);
     }
 
     @Get('payment-components')

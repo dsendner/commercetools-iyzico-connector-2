@@ -418,6 +418,7 @@ export class IyzicoPaymentService {
                     lastFourDigits: result.lastFourDigits,
                     installments: result.installment,
                     conversationId: result.conversationId,
+                    ...(result.iyzicoPaymentId ? { iyzicoPaymentId: result.iyzicoPaymentId } : {}),
                     ...(cardId ? { cardId } : {}),
                 },
             },

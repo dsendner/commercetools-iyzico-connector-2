@@ -40,7 +40,8 @@ async function ensurePaymentType(sdk: any): Promise<void> {
         { name: 'lastFourDigits',  type: { name: 'String' }, label: { en: 'Last four digits' },    required: false },
         { name: 'cardId',          type: { name: 'String' }, label: { en: 'Stored PaymentMethod ID' }, required: false },
         { name: 'installments',    type: { name: 'Number' }, label: { en: 'Installments' },           required: false },
-        { name: 'conversationId',    type: { name: 'String' }, label: { en: 'Tracking Iyzico Conversation ID' }, required: false }
+        { name: 'conversationId',    type: { name: 'String' }, label: { en: 'Tracking Iyzico Conversation ID' }, required: false },
+        { name: 'iyzicoPaymentId', type: { name: 'String' }, label: { en: 'Iyzico payment ID' },   required: false }
     ];
 
     await createOrUpdate(sdk, {
