@@ -20,7 +20,7 @@ export const envSchema = z.object({
     IYZICO_BASE_URL: z.string().url(),
     IYZICO_API_KEY: z.string().min(1),
     IYZICO_SECRET_KEY: z.string().min(1),
-    IYZICO_TIMEOUT: z.number().positive().default(30000),
+    IYZICO_TIMEOUT: z.coerce.number().positive().default(30000),
 
     SUBSCRIPTION_DETECTION_FIELD: z.string().min(1),
     RETURN_URL_EXTRA_QUERY: z.string().optional(),

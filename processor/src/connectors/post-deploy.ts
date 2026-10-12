@@ -101,8 +101,7 @@ async function createOrUpdate(
         return;
     }
 
-    await sdk.ctAPI.customType.update({
-        id: existing.id,
+    await sdk.ctAPI.customType.update(key, {
         version: existing.version,
         actions: missing.map(fieldDefinition => ({ action: 'addFieldDefinition', fieldDefinition })),
     });
