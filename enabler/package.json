@@ -25,6 +25,8 @@
     "nanoid": "^5.0.9",
     "path-to-regexp": "3.3.0",
     "brace-expansion": "5.0.12",
-    "postcss": "^8.5.18"
+    "postcss": "^8.5.18",
+    "handlebars": "^4.7.10",
+    "js-yaml": "^4.1.0"
   }
 }
